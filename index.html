@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Modern Shogi DX - WHITE EDITION</title>
+    <title>Modern Shogi DX - Refactored</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,6 +15,7 @@
     <!-- Babel (for JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- Global Styles -->
     <style>
         /* --- Base & Reset --- */
         body {
@@ -46,11 +47,6 @@
             50% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
             100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
         }
-        @keyframes skill-mode-pulse {
-            0% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
-            50% { box-shadow: inset 0 0 20px 0 rgba(239, 68, 68, 0.3); }
-            100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
         @keyframes cut-in-enter {
             0% { transform: scale(0) rotate(-10deg); opacity: 0; filter: blur(10px); }
             50% { transform: scale(1.2) rotate(5deg); opacity: 1; filter: blur(0px); }
@@ -70,33 +66,18 @@
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        /* 攻撃範囲エフェクト */
-        @keyframes explosion-flash {
-            0% { background-color: rgba(239, 68, 68, 0.8); }
-            100% { background-color: transparent; }
-        }
-        .explosion-fade {
-            animation: explosion-flash 0.8s ease-out forwards;
-        }
-        /* 分裂エフェクト */
-        @keyframes split-flash {
-            0% { background-color: rgba(59, 130, 246, 0.8); } 
-            100% { background-color: transparent; }
-        }
-        .split-fade {
-            animation: split-flash 0.8s ease-out forwards;
-        }
-        /* 風エフェクト */
-        @keyframes wind-flash {
-            0% { background-color: rgba(14, 165, 233, 0.5); transform: translateY(0); }
-            50% { transform: translateY(5px); }
-            100% { background-color: transparent; transform: translateY(0); }
-        }
-        .wind-fade {
-            animation: wind-flash 0.6s ease-out forwards;
-        }
+        
+        /* Effect Classes */
+        @keyframes explosion-flash { 0% { background-color: rgba(239, 68, 68, 0.8); } 100% { background-color: transparent; } }
+        .explosion-fade { animation: explosion-flash 0.8s ease-out forwards; }
 
-        /* --- Container Queries --- */
+        @keyframes split-flash { 0% { background-color: rgba(59, 130, 246, 0.8); } 100% { background-color: transparent; } }
+        .split-fade { animation: split-flash 0.8s ease-out forwards; }
+
+        @keyframes wind-flash { 0% { background-color: rgba(14, 165, 233, 0.5); transform: translateY(0); } 50% { transform: translateY(5px); } 100% { background-color: transparent; transform: translateY(0); } }
+        .wind-fade { animation: wind-flash 0.6s ease-out forwards; }
+
+        /* --- Container Queries for Responsive Text --- */
         .piece-container {
             container-type: size;
             width: 100%;
@@ -116,41 +97,22 @@
         .piece-container.small .piece-text-wrapper.long-text {
              font-size: 35cqh;
         }
-
-        /* --- Utility Classes --- */
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 0, 0, 0.1);
-        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
-        // --- Icons ---
-        const RotateCcw = ({ size = 24, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/>
-                <path d="M3 3v9h9"/>
-            </svg>
-        );
-        const Crosshair = ({ size = 24, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="22" y1="12" x2="18" y2="12"/>
-                <line x1="6" y1="12" x2="2" y2="12"/>
-                <line x1="12" y1="6" x2="12" y2="2"/>
-                <line x1="12" y1="22" x2="12" y2="18"/>
-            </svg>
-        );
-
-        // --- Constants ---
-        const PLAYER_SENTE = 'sente'; 
-        const PLAYER_GOTE = 'gote';
+        /* =========================================
+           1. CONSTANTS & CONFIGURATION
+           ========================================= */
+        
+        const PLAYERS = {
+            SENTE: 'sente',
+            GOTE: 'gote'
+        };
 
         const RARITY = {
             SSR: 'SSR',
@@ -159,7 +121,7 @@
             C: 'Common',
         };
 
-        // --- Movement Definitions ---
+        // --- Move Definitions ---
         const MOVES = {
             FRONT: { dr: -1, dc: 0 },
             BACK: { dr: 1, dc: 0 },
@@ -174,76 +136,125 @@
             GOLD: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE, ...MOVES.DIAG_FRONT], 
             SILVER: [MOVES.FRONT, ...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK],
             KING: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE, ...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK],
+            ROOK: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE],
+            BISHOP: [...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK],
         };
 
-        // --- Piece Registry ---
+        // --- Piece Registry (EDIT HERE to add/modify pieces) ---
         const PIECE_REGISTRY = {
-            FU: { id: 'FU', name: '歩兵', promotedName: 'と金', rarity: RARITY.C, moves: [MOVES.FRONT], promotedMoves: MOVE_SETS.GOLD },
-            NH: { id: 'NH', name: '二歩', promotedName: 'ト', rarity: RARITY.C, moves: [MOVES.FRONT], promotedMoves: MOVE_SETS.SILVER },
-            SH: { id: 'SH', name: '槍兵', promotedName: '金槍', rarity: RARITY.C, moves: [MOVES.FRONT], promotedMoves: MOVE_SETS.GOLD, isLancer: true },
-            // NEW: Fusei-Sha (Common) - Corrupter
+            FU: { 
+                id: 'FU', name: '歩兵', promotedName: 'と金', rarity: RARITY.C, 
+                moves: [MOVES.FRONT], 
+                promotedMoves: MOVE_SETS.GOLD 
+            },
+            NH: { 
+                id: 'NH', name: '二歩', promotedName: 'ト', rarity: RARITY.C, 
+                moves: [MOVES.FRONT], 
+                promotedMoves: MOVE_SETS.SILVER 
+            },
+            SH: { 
+                id: 'SH', name: '槍兵', promotedName: '金槍', rarity: RARITY.C, 
+                moves: [MOVES.FRONT], 
+                promotedMoves: MOVE_SETS.GOLD, 
+                isLancer: true // Special Property
+            },
             FS: { 
                 id: 'FS', name: '不正', promotedName: '鍍金', rarity: RARITY.C, 
                 moves: [MOVES.FRONT, MOVES.BACK], 
                 promotedMoves: MOVE_SETS.GOLD,
-                skill: { type: 'CORRUPTION', amount: 5 }
+                skill: { type: 'CORRUPTION', amount: 5 } // Special Skill
             },
-
-            KY: { id: 'KY', name: '香車', promotedName: '成香', rarity: RARITY.R, moves: [{ ...MOVES.FRONT, continuous: true }], promotedMoves: MOVE_SETS.GOLD },
-            KE: { id: 'KE', name: '桂馬', promotedName: '成桂', rarity: RARITY.R, moves: MOVES.KEIMA, promotedMoves: MOVE_SETS.GOLD },
-            KD: { id: 'KD', name: '桂騳', promotedName: '逆騳', rarity: RARITY.R, moves: MOVES.KEIMA, promotedMoves: [...MOVES.KEIMA, ...MOVES.BACK_KEIMA], isSplitter: true },
-            GI: { id: 'GI', name: '銀将', promotedName: '成銀', rarity: RARITY.R, moves: MOVE_SETS.SILVER, promotedMoves: MOVE_SETS.GOLD },
-            KI: { id: 'KI', name: '金将', promotedName: null, rarity: RARITY.R, moves: MOVE_SETS.GOLD, promotedMoves: null },
-            
+            KY: { 
+                id: 'KY', name: '香車', promotedName: '成香', rarity: RARITY.R, 
+                moves: [{ ...MOVES.FRONT, continuous: true }], 
+                promotedMoves: MOVE_SETS.GOLD 
+            },
+            KE: { 
+                id: 'KE', name: '桂馬', promotedName: '成桂', rarity: RARITY.R, 
+                moves: MOVES.KEIMA, 
+                promotedMoves: MOVE_SETS.GOLD 
+            },
+            KD: { 
+                id: 'KD', name: '桂騳', promotedName: '逆騳', rarity: RARITY.R, 
+                moves: MOVES.KEIMA, 
+                promotedMoves: [...MOVES.KEIMA, ...MOVES.BACK_KEIMA], 
+                isSplitter: true 
+            },
+            GI: { 
+                id: 'GI', name: '銀将', promotedName: '成銀', rarity: RARITY.R, 
+                moves: MOVE_SETS.SILVER, 
+                promotedMoves: MOVE_SETS.GOLD 
+            },
+            KI: { 
+                id: 'KI', name: '金将', promotedName: null, rarity: RARITY.R, 
+                moves: MOVE_SETS.GOLD, 
+                promotedMoves: null 
+            },
             MW: {
                 id: 'MW', name: '逆風', promotedName: '風車', rarity: RARITY.R,
-                moves: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE],
-                promotedMoves: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE].map(m => ({...m, continuous: true})), 
+                moves: [...MOVE_SETS.ROOK],
+                promotedMoves: [...MOVE_SETS.ROOK.map(m => ({...m, continuous: true}))], 
                 skill: { type: 'WIND', maxCharges: 1 },
                 isUnique: true
             },
-
-            KA: { id: 'KA', name: '角行', promotedName: '龍馬', rarity: RARITY.SR, moves: [...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK].map(m => ({...m, continuous: true})), promotedMoves: [...[...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK].map(m => ({...m, continuous: true})), MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE] },
-            HI: { id: 'HI', name: '飛車', promotedName: '龍王', rarity: RARITY.SR, moves: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE].map(m => ({...m, continuous: true})), promotedMoves: [...[MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE].map(m => ({...m, continuous: true})), ...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK] },
-            QU: { id: 'QU', name: '王妃', promotedName: null, rarity: RARITY.SR, moves: [MOVES.FRONT, MOVES.BACK, ...MOVES.SIDE, ...MOVES.DIAG_FRONT, ...MOVES.DIAG_BACK].map(m => ({...m, continuous: true})), promotedMoves: null, isBomb: true },
-            BM: { id: 'BM', name: '爆男', promotedName: null, rarity: RARITY.SR, moves: MOVE_SETS.GOLD, promotedMoves: MOVE_SETS.GOLD, skill: { type: 'BOMBER', maxCharges: 1, reloadAmount: 2 } },
-            OU: { id: 'OU', name: '王将', promotedName: null, rarity: RARITY.SSR, moves: MOVE_SETS.KING, promotedMoves: null },
+            KA: { 
+                id: 'KA', name: '角行', promotedName: '龍馬', rarity: RARITY.SR, 
+                moves: MOVE_SETS.BISHOP.map(m => ({...m, continuous: true})), 
+                promotedMoves: [...MOVE_SETS.BISHOP.map(m => ({...m, continuous: true})), ...MOVE_SETS.ROOK] 
+            },
+            HI: { 
+                id: 'HI', name: '飛車', promotedName: '龍王', rarity: RARITY.SR, 
+                moves: MOVE_SETS.ROOK.map(m => ({...m, continuous: true})), 
+                promotedMoves: [...MOVE_SETS.ROOK.map(m => ({...m, continuous: true})), ...MOVE_SETS.BISHOP] 
+            },
+            QU: { 
+                id: 'QU', name: '王妃', promotedName: null, rarity: RARITY.SR, 
+                moves: MOVE_SETS.KING.map(m => ({...m, continuous: true})), 
+                promotedMoves: null, 
+                isBomb: true // Special Property
+            },
+            BM: { 
+                id: 'BM', name: '爆男', promotedName: null, rarity: RARITY.SR, 
+                moves: MOVE_SETS.GOLD, 
+                promotedMoves: MOVE_SETS.GOLD, 
+                skill: { type: 'BOMBER', maxCharges: 1, reloadAmount: 2 } 
+            },
+            OU: { 
+                id: 'OU', name: '王将', promotedName: null, rarity: RARITY.SSR, 
+                moves: MOVE_SETS.KING, 
+                promotedMoves: null 
+            },
         };
+
+        const DEFAULT_HANDS = { [PLAYERS.SENTE]: [], [PLAYERS.GOTE]: [] };
+
+        /* =========================================
+           2. HELPER FUNCTIONS (PURE LOGIC)
+           ========================================= */
 
         const getPieceInfo = (type) => PIECE_REGISTRY[type] || PIECE_REGISTRY.FU;
 
-        // --- Logic: Random Generation ---
+        // Random Generation Logic
         const getRandomPiece = (targetRarity, uniqueCheck) => {
             let candidates = Object.values(PIECE_REGISTRY).filter(p => p.rarity === targetRarity);
-            
-            // Filter out unique pieces if already placed
-            if (uniqueCheck) {
-                candidates = candidates.filter(p => !p.isUnique || !uniqueCheck[p.id]);
-            }
-
+            if (uniqueCheck) candidates = candidates.filter(p => !p.isUnique || !uniqueCheck[p.id]);
             if (candidates.length === 0) return 'FU';
             
-            // Increase weight for normal pieces slightly to make unique rare feel rare
             const picked = candidates[Math.floor(Math.random() * candidates.length)];
-            
-            if (picked.isUnique && uniqueCheck) {
-                uniqueCheck[picked.id] = true;
-            }
+            if (picked.isUnique && uniqueCheck) uniqueCheck[picked.id] = true;
             return picked.id;
         };
 
         const createInitialBoard = () => {
           const board = Array(9).fill(null).map(() => Array(9).fill(null));
-          const uniqueCheck = {}; // Track unique pieces across board
-
+          const uniqueCheck = {}; 
           const place = (row, col, type, owner) => { 
               const info = PIECE_REGISTRY[type];
               const charges = info.skill ? info.skill.maxCharges : 0;
               board[row][col] = { type, owner, promoted: false, skillCharges: charges }; 
           };
-
           const setupSide = (owner) => {
-              const isSente = owner === PLAYER_SENTE;
+              const isSente = owner === PLAYERS.SENTE;
               const rowCommon = isSente ? 6 : 2;
               const rowRare = isSente ? 8 : 0;
               const rowSR = isSente ? 7 : 1;
@@ -253,14 +264,15 @@
               [1, 7].forEach(c => place(rowSR, c, getRandomPiece(RARITY.SR, uniqueCheck), owner));
               place(rowSSR, 4, getRandomPiece(RARITY.SSR, uniqueCheck), owner);
           };
-          setupSide(PLAYER_GOTE);
-          setupSide(PLAYER_SENTE);
+          setupSide(PLAYERS.GOTE);
+          setupSide(PLAYERS.SENTE);
           return board;
         };
 
+        // Move Validation Logic
         const getPieceMoves = (piece, r, c, board) => {
           const moves = [];
-          const isSente = piece.owner === PLAYER_SENTE;
+          const isSente = piece.owner === PLAYERS.SENTE;
           const info = getPieceInfo(piece.type);
           let activeMoves = piece.promoted && info.promotedMoves ? info.promotedMoves : info.moves;
           if (!Array.isArray(activeMoves)) activeMoves = [activeMoves];
@@ -293,23 +305,59 @@
           return moves;
         };
 
-        // --- Visual Components ---
+        const getHandDropMoves = (piece, turn, board) => {
+            const moves = [];
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (board[r][c] === null) {
+                        // Pawn Drop Restriction (Nifu)
+                        if (piece.type === 'FU') {
+                            let hasPawn = false;
+                            for (let i = 0; i < 9; i++) if (board[i][c]?.owner === turn && board[i][c]?.type === 'FU' && !board[i][c].promoted) hasPawn = true;
+                            if (hasPawn) continue;
+                            if (turn === PLAYERS.SENTE && r === 0) continue;
+                            if (turn === PLAYERS.GOTE && r === 8) continue;
+                        }
+                        // Dead End Restrictions
+                        if (['NH', 'SH', 'FS', 'KY'].includes(piece.type)) { 
+                           if (turn === PLAYERS.SENTE && r === 0) continue;
+                           if (turn === PLAYERS.GOTE && r === 8) continue;
+                        }
+                        if (['KE', 'KD'].includes(piece.type)) {
+                           if (turn === PLAYERS.SENTE && r <= 1) continue;
+                           if (turn === PLAYERS.GOTE && r >= 7) continue;
+                        }
+                        moves.push({ r, c });
+                    }
+                }
+            }
+            return moves;
+        };
 
+        /* =========================================
+           3. UI COMPONENTS
+           ========================================= */
+
+        // --- Icons ---
+        const RotateCcw = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+        );
+        const Crosshair = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+        );
+
+        // --- Modern Background ---
         const ModernBackground = ({ isSkillMode }) => (
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none bg-zinc-50 transition-colors duration-500">
-                <div 
-                    className="absolute inset-0 opacity-20"
-                    style={{
-                        backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)',
-                        backgroundSize: '40px 40px',
-                    }}
+                <div className="absolute inset-0 opacity-20"
+                    style={{ backgroundImage: 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)', backgroundSize: '40px 40px' }}
                 ></div>
-                {/* スキルモード時の赤背景演出 */}
                 <div className={`absolute inset-0 bg-red-500/10 pointer-events-none transition-opacity duration-300 ${isSkillMode ? 'opacity-100' : 'opacity-0'}`}></div>
                 <div className="absolute inset-0 bg-gradient-to-b from-white/0 via-white/50 to-white/0 pointer-events-none"></div>
             </div>
         );
 
+        // --- CutIn Effect ---
         const CutInOverlay = ({ type, text, subText, onComplete }) => {
             const [exiting, setExiting] = useState(false);
             useEffect(() => {
@@ -334,1038 +382,107 @@
             return (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none perspective-1000">
                     <div className={`absolute inset-0 bg-white/60 transition-opacity duration-300 ${exiting ? 'opacity-0' : 'opacity-100'}`} />
-                    <div 
-                        className={`relative flex flex-col items-center justify-center ${exiting ? 'animate-[cut-in-exit_0.4s_forwards]' : 'animate-[cut-in-enter_0.4s_cubic-bezier(0.17,0.67,0.83,0.67)]'}`}
-                    >
-                         <h2 className={`text-6xl md:text-8xl font-black italic tracking-tighter ${colorClass} transform -skew-x-12 border-white`}>
-                            {text}
-                         </h2>
-                         {subText && (
-                            <p className="mt-2 text-xl md:text-2xl font-bold text-zinc-500 tracking-widest uppercase transform -skew-x-12">
-                                {subText}
-                            </p>
-                         )}
+                    <div className={`relative flex flex-col items-center justify-center ${exiting ? 'animate-[cut-in-exit_0.4s_forwards]' : 'animate-[cut-in-enter_0.4s_cubic-bezier(0.17,0.67,0.83,0.67)]'}`}>
+                         <h2 className={`text-6xl md:text-8xl font-black italic tracking-tighter ${colorClass} transform -skew-x-12 border-white`}>{text}</h2>
+                         {subText && <p className="mt-2 text-xl md:text-2xl font-bold text-zinc-500 tracking-widest uppercase transform -skew-x-12">{subText}</p>}
                     </div>
                 </div>
             );
         };
 
+        // --- Modern Piece Component ---
         const ModernPiece = ({ type, owner, promoted, charges, size = 'large', style = {}, isSelected = false }) => {
-          const isGote = owner === PLAYER_GOTE;
+          const isGote = owner === PLAYERS.GOTE;
           const info = getPieceInfo(type);
           const name = promoted && info.promotedName ? info.promotedName : info.name;
           const rarity = info.rarity;
-          
           const pentagonPath = 'polygon(50% 0%, 82% 25%, 92% 100%, 8% 100%, 18% 25%)';
           const chars = name.split('');
 
-          let borderColor = '';
-          let textColor = '';
-          let glowColor = '';
-          let innerBackground = 'bg-white';
-          let animationClass = '';
+          // Style definitions based on rarity
+          let styles = {
+             borderColor: 'bg-slate-500', // Common: Metallic Grey Border
+             textColor: 'text-slate-600', // Common: Metallic Grey Text
+             glowColor: 'drop-shadow-sm',
+             innerBackground: 'bg-white',   // Common: White Background
+             animationClass: ''
+          };
 
-          switch (rarity) {
-            case RARITY.SSR:
-                borderColor = 'transparent'; 
-                textColor = promoted ? 'text-rose-500' : 'text-zinc-800';
-                glowColor = 'drop-shadow-[0_0_5px_rgba(255,215,0,0.4)]';
-                animationClass = 'animate-[rainbow-spin_4s_linear_infinite]';
-                innerBackground = 'bg-gradient-to-br from-slate-100 via-slate-300 to-slate-400';
-                break;
-            case RARITY.SR:
-                borderColor = 'bg-red-500'; 
-                textColor = 'text-red-600';
-                glowColor = 'drop-shadow-[0_2px_4px_rgba(220,38,38,0.2)]';
-                break;
-            case RARITY.R:
-                borderColor = 'bg-blue-500';
-                textColor = 'text-blue-600';
-                glowColor = 'drop-shadow-[0_2px_4px_rgba(37,99,235,0.2)]';
-                break;
-            case RARITY.C:
-                borderColor = 'bg-zinc-800';
-                textColor = 'text-zinc-900';
-                glowColor = 'drop-shadow-sm';
-                break;
+          if (rarity === RARITY.SSR) {
+              styles = { 
+                  borderColor: 'transparent', // Handled by rainbow gradient below
+                  // SSR: White Text
+                  textColor: 'text-white font-black drop-shadow-sm', 
+                  glowColor: 'drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]', 
+                  animationClass: 'animate-[rainbow-spin_4s_linear_infinite]', 
+                  // SSR: Metallic Grey Fill
+                  innerBackground: 'bg-gradient-to-br from-slate-200 via-slate-400 to-slate-500 border border-white/20' 
+              };
+          } else if (rarity === RARITY.SR) {
+              styles = { 
+                  borderColor: 'bg-red-600', // SR: Red Line Art
+                  textColor: 'text-red-600', 
+                  glowColor: 'drop-shadow-[0_2px_4px_rgba(220,38,38,0.2)]',
+                  innerBackground: 'bg-white'
+              };
+          } else if (rarity === RARITY.R) {
+              styles = { 
+                  borderColor: 'bg-blue-600', // Rare: Blue Line Art
+                  textColor: 'text-blue-600', 
+                  glowColor: 'drop-shadow-[0_2px_4px_rgba(37,99,235,0.2)]',
+                  innerBackground: 'bg-white'
+              };
           }
-
-          if (promoted && rarity !== RARITY.SSR) {
-              textColor = 'text-rose-600'; 
-          }
+          
+          if (promoted && rarity !== RARITY.SSR) styles.textColor = 'text-rose-600';
 
           return (
             <div 
-              className={`
-                piece-container ${size === 'small' ? 'small' : ''}
-                relative flex flex-col items-center justify-center 
-                select-none font-serif font-bold transition-transform duration-300
-                ${size === 'large' ? 'h-[92%]' : 'h-8'}
-                ${isSelected ? 'z-20 scale-110' : 'z-10'}
-                ${glowColor}
-              `}
-              style={{
-                transform: isGote ? 'rotate(180deg)' : 'rotate(0deg)',
-                aspectRatio: '1 / 1',
-                ...style
-              }}
+              className={`piece-container ${size === 'small' ? 'small' : ''} relative flex flex-col items-center justify-center select-none font-serif font-bold transition-transform duration-300 ${size === 'large' ? 'h-[92%]' : 'h-8'} ${isSelected ? 'z-20 scale-110' : 'z-10'} ${styles.glowColor}`}
+              style={{ transform: isGote ? 'rotate(180deg)' : 'rotate(0deg)', aspectRatio: '1 / 1', ...style }}
             >
-              {isSelected && (
-                  <div 
-                    className="absolute inset-[-6px] border-2 border-zinc-400 rounded-full animate-[select-pulse_1s_infinite]" 
-                    style={{ clipPath: pentagonPath }}
-                  />
-              )}
-
-              {/* Outer Border */}
-              <div 
-                className={`absolute inset-0 ${borderColor}`}
-                style={{ 
-                    clipPath: pentagonPath,
-                    background: rarity === RARITY.SSR ? 'conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' : undefined
-                }}
-              >
-                 {rarity === RARITY.SSR && (
-                     <div className={`absolute inset-[-50%] w-[200%] h-[200%] ${animationClass}`} 
-                          style={{ background: 'inherit' }} />
-                 )}
+              {isSelected && <div className="absolute inset-[-6px] border-2 border-slate-400 rounded-full animate-[select-pulse_1s_infinite]" style={{ clipPath: pentagonPath }} />}
+              
+              <div className={`absolute inset-0 ${styles.borderColor}`} style={{ clipPath: pentagonPath, background: rarity === RARITY.SSR ? 'conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' : undefined }}>
+                 {rarity === RARITY.SSR && <div className={`absolute inset-[-50%] w-[200%] h-[200%] ${styles.animationClass}`} style={{ background: 'inherit' }} />}
               </div>
               
-              {/* Inner Background */}
-              <div 
-                className={`absolute inset-[2px] z-10 ${innerBackground}`}
-                style={{ clipPath: pentagonPath }}
-              >
-                  {rarity === RARITY.SSR && (
-                    <div className="absolute inset-0 opacity-40 bg-gradient-to-tr from-transparent via-white to-transparent animate-[metal-shine_3s_infinite_linear] bg-[length:200%_100%]"></div>
-                  )}
+              <div className={`absolute inset-[2px] z-10 ${styles.innerBackground}`} style={{ clipPath: pentagonPath }}>
+                  {rarity === RARITY.SSR && <div className="absolute inset-0 opacity-30 bg-gradient-to-tr from-transparent via-white to-transparent animate-[metal-shine_3s_infinite_linear] bg-[length:200%_100%]"></div>}
               </div>
-
-              {/* Text */}
-              <div className={`
-                relative z-20 flex flex-col items-center justify-center
-                piece-text-wrapper ${chars.length > 1 ? 'long-text' : ''}
-                ${textColor}
-                ${size === 'large' ? 'pt-[5%]' : 'pt-[2%]'}
-              `}>
-                {chars.map((char, i) => (
-                  <span key={i} style={{ fontSize: '1em' }}>
-                    {char}
-                  </span>
-                ))}
+              
+              <div className={`relative z-20 flex flex-col items-center justify-center piece-text-wrapper ${chars.length > 1 ? 'long-text' : ''} ${styles.textColor} ${size === 'large' ? 'pt-[5%]' : 'pt-[2%]'}`}>
+                {chars.map((char, i) => <span key={i} style={{ fontSize: '1em' }}>{char}</span>)}
               </div>
-
-              {/* Charge Indicator (for Bomberman etc) */}
+              
               {charges > 0 && size === 'large' && (
                   <div className="absolute -bottom-1 -right-1 z-30 flex gap-0.5">
-                      {[...Array(charges)].map((_, i) => (
-                          <div key={i} className="w-2 h-2 rounded-full bg-red-500 border border-white shadow-sm"></div>
-                      ))}
+                      {[...Array(charges)].map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-red-500 border border-white shadow-sm"></div>)}
                   </div>
               )}
             </div>
           );
         };
 
-        // --- Main Component ---
-
-        function ModernShogi() {
-          const [board, setBoard] = useState(null); 
-          const [turn, setTurn] = useState(PLAYER_SENTE);
-          const [hands, setHands] = useState({ [PLAYER_SENTE]: [], [PLAYER_GOTE]: [] });
-          const [selected, setSelected] = useState(null); 
-          const [validDestinations, setValidDestinations] = useState([]);
-          const [lastMove, setLastMove] = useState(null);
-          const [promotionPending, setPromotionPending] = useState(null);
-          const [explosionPending, setExplosionPending] = useState(null); 
-          const [cutIn, setCutIn] = useState(null);
-          const [movingPiece, setMovingPiece] = useState(null);
-          
-          const [skillMode, setSkillMode] = useState(false);
-          // New: Explosion/Effect Effect State
-          const [explosionCells, setExplosionCells] = useState([]);
-          const [splitCells, setSplitCells] = useState([]);
-          const [windCells, setWindCells] = useState([]);
-
-          const boardRef = useRef(null);
-          const cellRefs = useRef(Array(9).fill(null).map(() => Array(9).fill(null)));
-
-          // Initial Load
-          useEffect(() => {
-              setBoard(createInitialBoard());
-          }, []);
-
-          const playSound = (type) => {};
-
-          const triggerExplosionEffect = (cells) => {
-              setExplosionCells(cells);
-              setTimeout(() => setExplosionCells([]), 800); 
-          };
-          const triggerSplitEffect = (cells) => {
-              setSplitCells(cells);
-              setTimeout(() => setSplitCells([]), 800); 
-          };
-          const triggerWindEffect = (cells) => {
-              setWindCells(cells);
-              setTimeout(() => setWindCells([]), 600);
-          };
-
-          useEffect(() => {
-            if (!board) return;
-            if (!selected) {
-              setValidDestinations([]);
-              setSkillMode(false); // Reset skill mode on deselect
-              return;
-            }
-
-            // Normal Movement Logic
-            if (!skillMode) {
-                if (selected.type === 'board') {
-                  const piece = board[selected.r][selected.c];
-                  if (piece && piece.owner === turn) {
-                    setValidDestinations(getPieceMoves(piece, selected.r, selected.c, board));
-                  }
-                } else if (selected.type === 'hand') {
-                  const moves = [];
-                  const piece = selected.piece;
-                  for (let r = 0; r < 9; r++) {
-                    for (let c = 0; c < 9; c++) {
-                      if (board[r][c] === null) {
-                        if (piece.type === 'FU') {
-                          let hasPawn = false;
-                          for (let i = 0; i < 9; i++) if (board[i][c]?.owner === turn && board[i][c]?.type === 'FU' && !board[i][c].promoted) hasPawn = true;
-                          if (hasPawn) continue;
-                          if (turn === PLAYER_SENTE && r === 0) continue;
-                          if (turn === PLAYER_GOTE && r === 8) continue;
-                        }
-                        if (piece.type === 'NH' || piece.type === 'SH' || piece.type === 'FS') { // 不正者も行き所のない場所へは打てない
-                           if (turn === PLAYER_SENTE && r === 0) continue;
-                           if (turn === PLAYER_GOTE && r === 8) continue;
-                        }
-                        if (piece.type === 'KY') {
-                           if (turn === PLAYER_SENTE && r === 0) continue;
-                           if (turn === PLAYER_GOTE && r === 8) continue;
-                        }
-                         if (piece.type === 'KE' || piece.type === 'KD') {
-                           if (turn === PLAYER_SENTE && r <= 1) continue;
-                           if (turn === PLAYER_GOTE && r >= 7) continue;
-                        }
-                        moves.push({ r, c });
-                      }
-                    }
-                  }
-                  setValidDestinations(moves);
-                }
-            } else {
-                // Skill Mode: No move destinations (handled by click)
-                setValidDestinations([]);
-            }
-          }, [selected, board, turn, skillMode]);
-
-          const handleSquareClick = (r, c) => {
-            if (!board || promotionPending || explosionPending || movingPiece || cutIn) return;
-
-            const target = board[r][c];
-
-            // 1. Skill Execution
-            if (skillMode && selected && selected.type === 'board') {
-                executeSkill(selected, r, c);
-                return;
-            }
-
-            // 2. Select Piece
-            if (!selected) {
-              if (target && target.owner === turn) {
-                setSelected({ type: 'board', r, c });
-                playSound('select');
-              }
-              return;
-            }
-
-            // 3. Deselect or Toggle Skill
-            if (selected.type === 'board' && selected.r === r && selected.c === c) {
-              // Check if piece has skill capability
-              const piece = board[r][c];
-              const info = getPieceInfo(piece.type);
-              if (info.skill && piece.skillCharges > 0) {
-                  setSkillMode(!skillMode); // Toggle
-                  playSound('select'); 
-              } else {
-                  setSelected(null);
-                  setSkillMode(false);
-              }
-              return;
-            }
-
-            // 4. Change Selection (only if not in skill mode)
-            if (target && target.owner === turn) {
-              setSelected({ type: 'board', r, c });
-              setSkillMode(false);
-              playSound('select');
-              return;
-            }
-
-            // 5. Move
-            if (!skillMode) {
-                const isValid = validDestinations.some(m => m.r === r && m.c === c);
-                if (isValid) {
-                  prepareMove(selected, r, c);
-                } else {
-                  setSelected(null);
-                }
-            }
-          };
-
-          const handleHandClick = (owner, index, piece, event) => {
-            if (!board || promotionPending || explosionPending || movingPiece || cutIn) return;
-            if (owner !== turn) return;
-
-            if (selected && selected.type === 'hand' && selected.index === index) {
-              setSelected(null);
-            } else {
-              setSelected({ type: 'hand', index, piece });
-              setSkillMode(false);
-              playSound('select');
-            }
-          };
-
-          // --- Skill Logic ---
-          const executeSkill = (from, targetR, targetC) => {
-              const piece = board[from.r][from.c];
-              const info = getPieceInfo(piece.type);
-              if (!piece || piece.skillCharges <= 0) return;
-
-              // --- WIND SKILL (逆風) ---
-              if (info.skill.type === 'WIND') {
-                  const newBoard = board.map(row => row.map(cell => cell ? {...cell} : null));
-                  
-                  // Decrease Charge
-                  newBoard[from.r][from.c].skillCharges -= 1;
-
-                  const pushDr = turn === PLAYER_SENTE ? -1 : 1;
-                  
-                  const affectedCells = [];
-                  const processOrder = [];
-
-                  // Find all enemies
-                  for (let r = 0; r < 9; r++) {
-                      for (let c = 0; c < 9; c++) {
-                          const t = newBoard[r][c];
-                          if (t && t.owner !== turn) {
-                              processOrder.push({r, c});
-                          }
-                      }
-                  }
-
-                  if (pushDr === -1) { // Push UP
-                      processOrder.sort((a, b) => a.r - b.r);
-                  } else { // Push DOWN
-                      processOrder.sort((a, b) => b.r - a.r); 
-                  }
-
-                  processOrder.forEach(pos => {
-                      const t = newBoard[pos.r][pos.c];
-                      let currR = pos.r;
-                      let currC = pos.c;
-                      let moved = false;
-                      let finalR = currR;
-
-                      // Check next step
-                      let nextR = currR + pushDr;
-                      while (nextR >= 0 && nextR < 9) {
-                          if (newBoard[nextR][currC] === null) {
-                              finalR = nextR;
-                              nextR += pushDr;
-                              moved = true;
-                          } else {
-                              break; // Hit something
-                          }
-                      }
-
-                      if (moved) {
-                          newBoard[finalR][currC] = t;
-                          newBoard[pos.r][pos.c] = null;
-                          affectedCells.push({r: finalR, c: currC});
-                      }
-                  });
-
-                  triggerWindEffect(affectedCells);
-                  
-                  setBoard(newBoard);
-                  setTurn(turn === PLAYER_SENTE ? PLAYER_GOTE : PLAYER_SENTE);
-                  setSelected(null);
-                  setSkillMode(false);
-                  setCutIn({ type: 'WIND', text: 'WIND BLAST', subText: 'REPEL' });
-                  setLastMove({ from: {r: from.r, c: from.c}, to: null });
-                  return;
-              }
-
-              // --- BOMBER SKILL ---
-              if (info.skill.type === 'BOMBER') {
-                  const newBoard = board.map(row => row.map(cell => cell ? {...cell} : null));
-                  const newHands = { ...hands, [PLAYER_SENTE]: [...hands[PLAYER_SENTE]], [PLAYER_GOTE]: [...hands[PLAYER_GOTE]] };
-                  
-                  // Decrease Charge
-                  newBoard[from.r][from.c].skillCharges -= 1;
-
-                  const targets = [];
-                  // Vertical
-                  for (let i = -3; i <= 3; i++) targets.push({r: targetR + i, c: targetC});
-                  // Horizontal
-                  for (let i = -3; i <= 3; i++) if (i !== 0) targets.push({r: targetR, c: targetC + i});
-
-                  // Trigger Visual Effect
-                  triggerExplosionEffect(targets);
-
-                  targets.forEach(pos => {
-                      if (pos.r >= 0 && pos.r < 9 && pos.c >= 0 && pos.c < 9) {
-                          const t = newBoard[pos.r][pos.c];
-                          if (t && t.owner !== turn) { // Enemy only
-                              const tInfo = getPieceInfo(t.type);
-                              if (tInfo.rarity === RARITY.R || tInfo.rarity === RARITY.C) {
-                                  // Capture
-                                  newHands[turn].push({ type: t.type, owner: turn, promoted: false, skillCharges: tInfo.skill ? tInfo.skill.maxCharges : 0 });
-                                  newBoard[pos.r][pos.c] = null;
-                              }
-                          }
-                      }
-                  });
-
-                  setBoard(newBoard);
-                  setHands(newHands);
-                  setTurn(turn === PLAYER_SENTE ? PLAYER_GOTE : PLAYER_SENTE);
-                  setSelected(null);
-                  setSkillMode(false);
-                  setCutIn({ type: 'BOMB_SKILL', text: 'BOMB SET', subText: 'DESTRUCTION' });
-                  setLastMove({ from: {r: from.r, c: from.c}, to: null }); // Skill action marker
-                  return;
-              }
-          };
-
-          const prepareMove = (from, toR, toC) => {
-            let startRect = null;
-            let endRect = null;
-            let animatedPiece = null;
-
-            if (cellRefs.current[toR] && cellRefs.current[toR][toC]) {
-              endRect = cellRefs.current[toR][toC].getBoundingClientRect();
-            }
-
-            if (from.type === 'board') {
-              if (cellRefs.current[from.r] && cellRefs.current[from.r][from.c]) {
-                startRect = cellRefs.current[from.r][from.c].getBoundingClientRect();
-              }
-              animatedPiece = board[from.r][from.c];
-            } else {
-              if (boardRef.current) {
-                 const boardRect = boardRef.current.getBoundingClientRect();
-                 startRect = { 
-                   top: boardRect.top + boardRect.height / 2 - 20, 
-                   left: boardRect.left + boardRect.width / 2 - 20, 
-                   width: 40, 
-                   height: 40 
-                 };
-              }
-              animatedPiece = from.piece;
-            }
-
-            if (startRect && endRect && animatedPiece) {
-              setMovingPiece({
-                piece: animatedPiece,
-                fromPos: from.type === 'board' ? {r: from.r, c: from.c} : 'hand',
-                startRect,
-                endRect,
-                toR, toC,
-                fromInfo: from
-              });
-              playSound('move_start');
-            } else {
-              executeMove(from, toR, toC);
-            }
-          };
-
-          const onAnimationComplete = () => {
-            if (!movingPiece) return;
-            const { fromInfo, toR, toC } = movingPiece;
-            setMovingPiece(null);
-            executeMove(fromInfo, toR, toC);
-          };
-
-          const executeMove = (from, toR, toC) => {
-            const newBoard = board.map(row => row.map(cell => cell ? {...cell} : null));
-            const newHands = { ...hands, [PLAYER_SENTE]: [...hands[PLAYER_SENTE]], [PLAYER_GOTE]: [...hands[PLAYER_GOTE]] };
-            
-            let mustPromote = false;
-            let canPromote = false;
-            let canExplode = false; 
-            let didSplit = false;
-            let movedPieceObj = null;
-            let captureOccurred = false;
-            
-            // --- FIX: Define info variable here so it's accessible in all scopes ---
-            let info = null;
-
-            if (from.type === 'board') {
-              movedPieceObj = newBoard[from.r][from.c];
-              newBoard[from.r][from.c] = null;
-              info = getPieceInfo(movedPieceObj.type); // Assign info
-              
-              if (newBoard[toR][toC] !== null) {
-                const capturedPiece = newBoard[toR][toC];
-                const capInfo = getPieceInfo(capturedPiece.type);
-                newHands[turn].push({ 
-                  type: capturedPiece.type, 
-                  owner: turn, 
-                  promoted: false,
-                  skillCharges: capInfo.skill ? capInfo.skill.maxCharges : 0 // Reset skill on capture
-                });
-                captureOccurred = true;
-
-                // --- CORRUPTION SKILL (不正者) ---
-                if (info.skill && info.skill.type === 'CORRUPTION' && !movedPieceObj.promoted) {
-                     const opponent = turn === PLAYER_SENTE ? PLAYER_GOTE : PLAYER_SENTE;
-                     const opponentHand = newHands[opponent];
-                     const maxCorrupt = info.skill.amount;
-                     let count = 0;
-                     for (let i = 0; i < opponentHand.length && count < maxCorrupt; i++) {
-                         if (opponentHand[i].type !== 'FU') {
-                             opponentHand[i].type = 'FU';
-                             opponentHand[i].promoted = false; 
-                             delete opponentHand[i].skillCharges; 
-                             count++;
-                         }
-                     }
-                     if (count > 0) {
-                         setCutIn({ type: 'CORRUPTION', text: 'CORRUPTION', subText: 'HANDS MODIFIED' });
-                         captureOccurred = false; // Override capture anim? or both. Let's keep both if possible but CutIn only shows one. Corruption is more important.
-                     }
-                }
-                // --------------------------------
-              }
-
-              const isSente = turn === PLAYER_SENTE;
-              const isInZone = isSente ? toR <= 2 : toR >= 6;
-              const wasInZone = isSente ? from.r <= 2 : from.r >= 6;
-              
-              if (info.isBomb && (isInZone || wasInZone)) {
-                  canExplode = true;
-              }
-
-              // SPLITTER LOGIC (桂騳)
-              if (info.isSplitter && !movedPieceObj.promoted) {
-                  const dc = toC - from.c; // -1 or +1
-                  const otherDc = -dc; 
-                  const otherC = from.c + otherDc;
-                  // other destination is (toR, otherC)
-                  
-                  if (otherC >= 0 && otherC < 9) {
-                      const otherTarget = newBoard[toR][otherC];
-                      if (otherTarget === null || otherTarget.owner !== turn) {
-                          if (otherTarget) {
-                              const capInfo2 = getPieceInfo(otherTarget.type);
-                              newHands[turn].push({ 
-                                type: otherTarget.type, 
-                                owner: turn, 
-                                promoted: false,
-                                skillCharges: capInfo2.skill ? capInfo2.skill.maxCharges : 0
-                              });
-                          }
-                          // Place Clone
-                          newBoard[toR][otherC] = { ...movedPieceObj };
-                          didSplit = true;
-                          // Trigger effect
-                          triggerSplitEffect([{r: toR, c: otherC}]);
-                      }
-                  }
-              }
-
-              if (movedPieceObj.type !== 'OU' && movedPieceObj.type !== 'KI' && !movedPieceObj.promoted && info.promotedMoves) {
-                if (isInZone || wasInZone) {
-                  canPromote = true;
-                  // 歩(FU), 槍兵(SH), 二歩(NH), 不正者(FS), 香車(KY) は1段目で行き所なしなら強制成り
-                  if (['FU', 'SH', 'NH', 'FS', 'KY'].includes(movedPieceObj.type)) {
-                    if ((isSente && toR === 0) || (!isSente && toR === 8)) mustPromote = true;
-                  } else if (['KE', 'KD'].includes(movedPieceObj.type)) {
-                    if ((isSente && toR <= 1) || (!isSente && toR >= 7)) mustPromote = true;
-                  }
-                }
-              }
-            } else {
-              // 打つ時: チャージ数を初期化
-              info = getPieceInfo(from.piece.type); // Assign info
-              movedPieceObj = { 
-                  ...from.piece, 
-                  owner: turn,
-                  skillCharges: info.skill ? info.skill.maxCharges : 0
-              };
-              newHands[turn].splice(from.index, 1);
-            }
-
-            newBoard[toR][toC] = movedPieceObj;
-
-            // --- LANCER ATTACK LOGIC (槍兵) ---
-            if (info.isLancer) {
-                const isSente = turn === PLAYER_SENTE;
-                const forward = isSente ? -1 : 1;
-                const effectTargets = [];
-                const destructionTargets = [];
-
-                if (!movedPieceObj.promoted) {
-                    // 通常: 移動先 + その奥1マス
-                    effectTargets.push({ r: toR, c: toC }); // 移動先（エフェクトのみ）
-                    
-                    const nextR = toR + forward;
-                    const nextC = toC;
-                    if (nextR >= 0 && nextR < 9) {
-                        effectTargets.push({ r: nextR, c: nextC });
-                        destructionTargets.push({ r: nextR, c: nextC });
-                    }
-                } else {
-                    // 成り: 移動後の位置から前方1マス
-                    const nextR = toR + forward;
-                    const nextC = toC;
-                    if (nextR >= 0 && nextR < 9) {
-                        effectTargets.push({ r: nextR, c: nextC });
-                        destructionTargets.push({ r: nextR, c: nextC });
-                    }
-                }
-
-                // エフェクト発動
-                if (effectTargets.length > 0) {
-                    triggerExplosionEffect(effectTargets);
-                }
-
-                // 破壊処理
-                let hit = false;
-                destructionTargets.forEach(pos => {
-                    const target = newBoard[pos.r][pos.c];
-                    if (target && target.owner !== turn) { // 敵のみ破壊
-                        const tInfo = getPieceInfo(target.type);
-                        if (tInfo.rarity !== RARITY.SSR) { // SSRは無効
-                            newBoard[pos.r][pos.c] = null; // 消滅
-                            hit = true;
-                        }
-                    }
-                });
-                if (hit) playSound('capture');
-            }
-            // ----------------------------------
-
-            if (didSplit) {
-                setCutIn({ type: 'SPLIT', text: 'SPLIT', subText: 'DOUBLE TROUBLE' });
-                playSound('place'); // or special sound
-            } else if (captureOccurred && (!info.skill || info.skill.type !== 'CORRUPTION')) { // Corruption overrides capture anim
-                setCutIn({ type: 'CAPTURE', text: 'CAPTURE', subText: '' });
-                playSound('capture');
-            } else {
-                playSound('place');
-            }
-
-            if (canExplode) {
-                setExplosionPending({
-                    board: newBoard,
-                    hands: newHands,
-                    r: toR,
-                    c: toC,
-                    prev: from.type === 'board' ? {r: from.r, c: from.c} : null
-                });
-                setLastMove({ from: from.type === 'board' ? {r: from.r, c: from.c} : null, to: {r: toR, c: toC} });
-            } else if (mustPromote) {
-              movedPieceObj.promoted = true;
-              // 成ったらリロード
-              if (info.skill && info.skill.reloadAmount) {
-                  movedPieceObj.skillCharges = info.skill.reloadAmount;
-              }
-              setCutIn({ type: 'PROMOTION', text: 'PROMOTION', subText: '' });
-              finalizeMove(newBoard, newHands, toR, toC, from.type === 'board' ? {r: from.r, c: from.c} : null);
-            } else if (canPromote && from.type === 'board') {
-              setPromotionPending({ 
-                board: newBoard, 
-                hands: newHands, 
-                r: toR, 
-                c: toC, 
-                prev: {r: from.r, c: from.c} 
-              });
-              setLastMove({ from: {r: from.r, c: from.c}, to: {r: toR, c: toC} });
-            } else {
-              finalizeMove(newBoard, newHands, toR, toC, from.type === 'board' ? {r: from.r, c: from.c} : null);
-            }
-          };
-
-          const finalizeMove = (newBoard, newHands, toR, toC, prevPos) => {
-            setBoard(newBoard);
-            setHands(newHands);
-            setTurn(turn === PLAYER_SENTE ? PLAYER_GOTE : PLAYER_SENTE);
-            setSelected(null);
-            setValidDestinations([]);
-            setLastMove({ from: prevPos, to: { r: toR, c: toC } });
-            setPromotionPending(null);
-            setExplosionPending(null);
-          };
-
-          const handlePromotionChoice = (shouldPromote) => {
-            if (!promotionPending) return;
-            const { board: savedBoard, hands: savedHands, r, c, prev } = promotionPending;
-            const finalBoard = savedBoard.map(row => row.map(cell => cell ? {...cell} : null));
-            const targetPiece = finalBoard[r][c];
-
-            if (shouldPromote) {
-              targetPiece.promoted = true;
-              // 成ったらリロード
-              const info = getPieceInfo(targetPiece.type);
-              if (info.skill && info.skill.reloadAmount) {
-                  targetPiece.skillCharges = info.skill.reloadAmount;
-              }
-              setCutIn({ type: 'PROMOTION', text: 'PROMOTION', subText: '' });
-              playSound('promote');
-            }
-            finalizeMove(finalBoard, savedHands, r, c, prev);
-          };
-
-          const handleExplosionChoice = (shouldExplode) => {
-             if (!explosionPending) return;
-             const { board: savedBoard, hands: savedHands, r, c, prev } = explosionPending;
-             
-             if (!shouldExplode) {
-                 finalizeMove(savedBoard, savedHands, r, c, prev);
-                 return;
-             }
-
-             const finalBoard = savedBoard.map(row => row.map(cell => cell ? {...cell} : null));
-             const finalHands = { ...savedHands, [PLAYER_SENTE]: [...savedHands[PLAYER_SENTE]], [PLAYER_GOTE]: [...savedHands[PLAYER_GOTE]] };
-             
-             const targets = [];
-             for (let dr = -1; dr <= 1; dr++) {
-                 for (let dc = -1; dc <= 1; dc++) {
-                     // 周囲8マス + 自分(後で処理するが含まれてもよい)
-                     targets.push({r: r + dr, c: c + dc});
-                     
-                     if (dr === 0 && dc === 0) continue; 
-                     const nr = r + dr;
-                     const nc = c + dc;
-                     if (nr >= 0 && nr < 9 && nc >= 0 && nc < 9) {
-                         const target = finalBoard[nr][nc];
-                         if (target) {
-                             const info = getPieceInfo(target.type);
-                             if (info.rarity !== RARITY.SSR) { 
-                                 finalBoard[nr][nc] = null; 
-                             }
-                         }
-                     }
-                 }
-             }
-             
-             // Trigger Visual Effect for Queen Explosion
-             triggerExplosionEffect(targets);
-
-             const me = finalBoard[r][c];
-             finalBoard[r][c] = null; 
-             
-             const opponent = turn === PLAYER_SENTE ? PLAYER_GOTE : PLAYER_SENTE;
-             const myInfo = getPieceInfo(me.type);
-             finalHands[opponent].push({
-                 type: me.type,
-                 owner: opponent,
-                 promoted: false,
-                 skillCharges: myInfo.skill ? myInfo.skill.maxCharges : 0
-             });
-
-             setCutIn({ type: 'EXPLOSION', text: 'EXPLOSION', subText: 'SACRIFICE' });
-             finalizeMove(finalBoard, finalHands, r, c, prev);
-          };
-
-          const resetGame = () => {
-            if (window.confirm('システムをリセットしますか？')) {
-              setBoard(createInitialBoard());
-              setTurn(PLAYER_SENTE);
-              setHands({ [PLAYER_SENTE]: [], [PLAYER_GOTE]: [] });
-              setSelected(null);
-              setValidDestinations([]);
-              setLastMove(null);
-              setPromotionPending(null);
-              setExplosionPending(null);
-              setMovingPiece(null);
-              setCutIn(null);
-              setSkillMode(false);
-              setExplosionCells([]);
-              setSplitCells([]);
-              setWindCells([]);
-            }
-          };
-
-          if (!board) return <div className="h-dvh w-full bg-white text-zinc-800 flex items-center justify-center">INITIALIZING...</div>;
-
-          return (
-            <div className="h-dvh w-full flex flex-col items-center justify-between py-4 font-sans select-none overflow-hidden touch-none relative">
-              <ModernBackground isSkillMode={skillMode} />
-              
-              {/* Skill Mode Overlay Text */}
-              {skillMode && (
-                  <div className="absolute top-1/4 left-0 right-0 text-center pointer-events-none z-20 animate-pulse">
-                      <h2 className="text-4xl font-black text-red-500 tracking-widest bg-white/80 backdrop-blur inline-block px-4 py-1 rounded">SKILL MODE</h2>
-                      <p className="text-sm font-bold text-red-600 mt-1 bg-white/80 inline-block px-2">TAP TARGET TO DETONATE</p>
-                  </div>
-              )}
-
-              <div className={`absolute inset-0 flex flex-col items-center justify-between ${cutIn?.type === 'EXPLOSION' || cutIn?.type === 'BOMB_SKILL' ? 'animate-[explosion-shake_0.5s]' : ''}`}>
-
-              {/* カットインレイヤー */}
-              {cutIn && (
-                  <CutInOverlay 
-                    type={cutIn.type} 
-                    text={cutIn.text} 
-                    subText={cutIn.subText} 
-                    onComplete={() => setCutIn(null)} 
-                  />
-              )}
-              
-              {/* Menu */}
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-2 p-2 z-40">
-                  <div className="writing-vertical-rl text-[10px] text-zinc-400 tracking-widest uppercase mb-2">MODERN SHOGI</div>
-                  <button onClick={resetGame} className="p-3 bg-white/50 backdrop-blur rounded-full text-zinc-500 hover:text-zinc-800 border border-zinc-200 shadow-sm">
-                     <RotateCcw size={20} />
-                  </button>
-              </div>
-
-              {/* Top: Gote */}
-              <div className="w-full flex justify-center rotate-180 transition-transform duration-500 z-10">
-                  <div className="flex flex-col items-center gap-2 w-full max-w-[320px] sm:max-w-md">
-                      <div className={`
-                         flex items-center gap-2 px-4 py-1 border rounded-full text-xs tracking-wide transition-all duration-300
-                         ${turn === PLAYER_GOTE ? 'border-zinc-800 bg-zinc-800 text-white shadow-md' : 'border-zinc-300 text-zinc-400'}
-                      `}>
-                         <span className={`w-1.5 h-1.5 rounded-full ${turn === PLAYER_GOTE ? 'bg-white' : 'bg-zinc-400'}`}></span>
-                         PLAYER GOTE
-                      </div>
-                      <ModernHand 
-                        owner={PLAYER_GOTE} 
-                        pieces={hands[PLAYER_GOTE]} 
-                        isTurn={turn === PLAYER_GOTE}
-                        onPieceClick={handleHandClick}
-                        selected={selected}
-                      />
-                  </div>
-              </div>
-
-              {/* Center: Board */}
-              <div className="flex-1 flex items-center justify-center w-full px-2 z-10" ref={boardRef}>
-                   <div className={`relative p-2 sm:p-3 border rounded-sm shadow-xl transition-colors duration-300 ${skillMode ? 'bg-red-50 border-red-300' : 'bg-white border-zinc-200'}`}>
-                     
-                     {/* Grid */}
-                     <div className={`grid grid-cols-9 gap-px border transition-colors duration-300 ${skillMode ? 'bg-red-200 border-red-300' : 'bg-zinc-300 border-zinc-300'}`}>
-                       {board.map((row, r) => (
-                         row.map((cell, c) => {
-                           const isSelected = selected && selected.type === 'board' && selected.r === r && selected.c === c;
-                           const isValidDest = validDestinations.some(m => m.r === r && m.c === c);
-                           const isLastMoveSrc = lastMove && lastMove.from && lastMove.from.r === r && lastMove.from.c === c;
-                           const isLastMoveDst = lastMove && lastMove.to && lastMove.to.r === r && lastMove.to.c === c;
-                           const isMovingSource = movingPiece && movingPiece.fromPos !== 'hand' && movingPiece.fromPos.r === r && movingPiece.fromPos.c === c;
-                           const showPiece = cell && !isMovingSource;
-                           
-                           // Effects Check
-                           const isExploding = explosionCells.some(ec => ec.r === r && ec.c === c);
-                           const isSplitting = splitCells.some(ec => ec.r === r && ec.c === c);
-                           const isWind = windCells.some(ec => ec.r === r && ec.c === c);
-
-                           return (
-                             <div 
-                               key={`${r}-${c}`}
-                               ref={el => { if (cellRefs.current[r]) cellRefs.current[r][c] = el; }}
-                               className={`
-                                 w-[min(10vw,36px)] h-[min(11vw,40px)] sm:w-[min(10vw,48px)] sm:h-[min(11vw,52px)] md:w-14 md:h-16
-                                 flex items-center justify-center relative
-                                 transition-colors duration-200
-                                 ${isExploding ? 'explosion-fade' : ''}
-                                 ${isSplitting ? 'split-fade' : ''}
-                                 ${isWind ? 'wind-fade' : ''}
-                                 ${skillMode ? 'bg-red-50/50 hover:bg-red-200 cursor-crosshair' : 'bg-white'}
-                                 ${isValidDest ? 'cursor-pointer' : ''}
-                               `}
-                               onClick={() => handleSquareClick(r, c)}
-                             >
-                               {/* Highlights */}
-                               {!skillMode && isLastMoveSrc && <div className="absolute inset-0 bg-yellow-100" />}
-                               {!skillMode && isLastMoveDst && <div className="absolute inset-0 bg-yellow-100/50" />}
-                               
-                               {/* Valid Destination Marker (Dot) */}
-                               {isValidDest && (
-                                 <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                                    <div className="w-2 h-2 bg-red-400/50 rounded-full"></div>
-                                    {cell && <div className="absolute inset-0 border border-red-400"></div>}
-                                 </div>
-                               )}
-                               
-                               {/* Skill Target Crosshair */}
-                               {skillMode && (
-                                   <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-50 pointer-events-none z-20 text-red-600">
-                                       <Crosshair size={24} />
-                                   </div>
-                               )}
-
-                               {showPiece && (
-                                 <ModernPiece 
-                                   type={cell.type} 
-                                   owner={cell.owner} 
-                                   promoted={cell.promoted}
-                                   charges={cell.skillCharges}
-                                   isSelected={isSelected}
-                                 />
-                               )}
-                             </div>
-                           );
-                         })
-                       ))}
-                     </div>
-                   </div>
-
-                   {/* Promotion Modal */}
-                   {promotionPending && (
-                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 rounded-sm">
-                       <div className="flex flex-col items-center gap-6 p-8 border border-zinc-200 bg-white rounded-lg shadow-2xl">
-                         <p className="text-xl font-bold tracking-widest text-zinc-800">PROMOTE?</p>
-                         <div className="flex gap-8">
-                           <button 
-                             onClick={() => handlePromotionChoice(true)}
-                             className="group flex flex-col items-center gap-2"
-                           >
-                             <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded group-hover:border-rose-500 transition-all shadow-sm">
-                                <ModernPiece 
-                                    type={promotionPending.board[promotionPending.r][promotionPending.c].type} 
-                                    owner={turn} 
-                                    promoted={true} 
-                                    size="large" 
-                                />
-                             </div>
-                             <span className="text-sm font-bold text-zinc-400 group-hover:text-rose-500">YES</span>
-                           </button>
-                           <button 
-                             onClick={() => handlePromotionChoice(false)}
-                             className="group flex flex-col items-center gap-2"
-                           >
-                             <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded group-hover:border-zinc-800 transition-all shadow-sm">
-                                <ModernPiece 
-                                    type={promotionPending.board[promotionPending.r][promotionPending.c].type} 
-                                    owner={turn} 
-                                    promoted={false} 
-                                    size="large" 
-                                />
-                             </div>
-                             <span className="text-sm font-bold text-zinc-400 group-hover:text-zinc-800">NO</span>
-                           </button>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-
-                   {/* Explosion Modal */}
-                   {explosionPending && (
-                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-50/90 rounded-sm animate-[danger-pulse_2s_infinite]">
-                       <div className="flex flex-col items-center gap-6 p-8 border border-red-200 bg-white rounded-lg shadow-2xl">
-                         <p className="text-2xl font-black italic tracking-widest text-red-600 animate-pulse">DETONATE?</p>
-                         <p className="text-xs text-red-400 max-w-[200px] text-center">Destroy surrounding pieces (SR or lower) and sacrifice self to opponent.</p>
-                         <div className="flex gap-8 mt-2">
-                           <button 
-                             onClick={() => handleExplosionChoice(true)}
-                             className="group flex flex-col items-center gap-2"
-                           >
-                             <div className="w-16 h-16 flex items-center justify-center border-2 border-red-500 bg-red-50 rounded-full group-hover:scale-110 transition-all shadow-md">
-                                <span className="text-3xl">💥</span>
-                             </div>
-                             <span className="text-sm font-bold text-red-500 group-hover:text-red-600">EXPLODE</span>
-                           </button>
-                           <button 
-                             onClick={() => handleExplosionChoice(false)}
-                             className="group flex flex-col items-center gap-2"
-                           >
-                             <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded-full group-hover:border-zinc-400 transition-all shadow-sm">
-                                <span className="text-xl text-zinc-400">✖</span>
-                             </div>
-                             <span className="text-sm font-bold text-zinc-400 group-hover:text-zinc-800">CANCEL</span>
-                           </button>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-
-                   {/* Flying Piece Layer */}
-                   {movingPiece && (
-                     <FlyingPiece 
-                       piece={movingPiece.piece}
-                       startRect={movingPiece.startRect}
-                       endRect={movingPiece.endRect}
-                       onComplete={onAnimationComplete}
-                     />
-                   )}
-              </div>
-              </div>
-
-              {/* Bottom: Sente */}
-              <div className="w-full flex justify-center z-10">
-                  <div className="flex flex-col items-center gap-2 w-full max-w-[320px] sm:max-w-md">
-                      <div className={`
-                         flex items-center gap-2 px-4 py-1 border rounded-full text-xs tracking-wide transition-all duration-300
-                         ${turn === PLAYER_SENTE ? 'border-zinc-800 bg-zinc-800 text-white shadow-md' : 'border-zinc-300 text-zinc-400'}
-                      `}>
-                         <span className={`w-1.5 h-1.5 rounded-full ${turn === PLAYER_SENTE ? 'bg-white' : 'bg-zinc-400'}`}></span>
-                         PLAYER SENTE
-                      </div>
-                      <ModernHand 
-                        owner={PLAYER_SENTE} 
-                        pieces={hands[PLAYER_SENTE]} 
-                        isTurn={turn === PLAYER_SENTE}
-                        onPieceClick={handleHandClick}
-                        selected={selected}
-                      />
-                  </div>
-              </div>
-
-            </div>
-          );
-        }
-
         const FlyingPiece = ({ piece, startRect, endRect, onComplete }) => {
           const [style, setStyle] = useState({
-            position: 'fixed',
-            top: startRect.top,
-            left: startRect.left,
-            width: startRect.width,
-            height: startRect.height,
-            transform: 'scale(1)',
-            zIndex: 100,
-            pointerEvents: 'none',
-            transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)', 
-            opacity: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            position: 'fixed', top: startRect.top, left: startRect.left, width: startRect.width, height: startRect.height,
+            transform: 'scale(1)', zIndex: 100, pointerEvents: 'none', transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)', 
+            opacity: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           });
           
           useEffect(() => {
             const timer1 = requestAnimationFrame(() => {
-              setStyle(prev => ({
-                ...prev,
-                top: endRect.top,
-                left: endRect.left,
-                width: endRect.width,
-                height: endRect.height,
-                transform: 'scale(1.1)',
-                filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))'
-              }));
+              setStyle(prev => ({ ...prev, top: endRect.top, left: endRect.left, width: endRect.width, height: endRect.height, transform: 'scale(1.1)', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }));
             });
-            
             const timer2 = setTimeout(() => {
               setStyle(prev => ({ ...prev, transform: 'scale(1)', filter: 'none' }));
               setTimeout(onComplete, 50);
             }, 400);
-
             return () => { cancelAnimationFrame(timer1); clearTimeout(timer2); };
           }, [endRect, onComplete]);
 
-          return (
-             <div style={style}>
-                 <ModernPiece type={piece.type} owner={piece.owner} promoted={piece.promoted} />
-             </div>
-          );
+          return <div style={style}><ModernPiece type={piece.type} owner={piece.owner} promoted={piece.promoted} /></div>;
         };
 
         function ModernHand({ owner, pieces, isTurn, onPieceClick, selected }) {
@@ -1376,45 +493,16 @@
           });
 
           return (
-            <div className={`
-              w-full min-h-[72px]
-              flex flex-wrap gap-2 content-center items-center justify-center
-              px-4 py-2 bg-white rounded-lg
-              border border-zinc-200 shadow-sm
-            `}>
-              {Object.keys(grouped).length === 0 && (
-                <span className="text-zinc-300 text-[10px] tracking-widest uppercase">No Pieces</span>
-              )}
-
+            <div className={`w-full min-h-[72px] flex flex-wrap gap-2 content-center items-center justify-center px-4 py-2 bg-white rounded-lg border border-zinc-200 shadow-sm`}>
+              {Object.keys(grouped).length === 0 && <span className="text-zinc-300 text-[10px] tracking-widest uppercase">No Pieces</span>}
               {Object.entries(grouped).map(([type, list]) => {
                 const piece = list[0];
                 const count = list.length;
                 const isSelected = selected && selected.type === 'hand' && selected.piece.type === type && pieces[selected.index].owner === owner;
-                
                 return (
-                  <button 
-                    key={type}
-                    disabled={!isTurn}
-                    onClick={(e) => onPieceClick(owner, piece.originalIndex, piece, e)}
-                    className={`
-                      relative flex items-center justify-center p-0.5
-                      transition-all duration-200
-                      ${isSelected ? 'scale-110 opacity-100' : 'opacity-80 hover:opacity-100 hover:scale-105'}
-                    `}
-                  >
-                    <div className={`relative w-8 h-8`}>
-                        <ModernPiece 
-                            type={type} 
-                            owner={owner} 
-                            promoted={false} 
-                            size="small" 
-                        />
-                    </div>
-                    {count > 1 && (
-                      <span className="absolute -bottom-1 -right-1 bg-zinc-800 text-white text-[9px] font-medium px-1.5 rounded-full border border-white leading-none flex items-center justify-center h-4 min-w-[16px]">
-                        {count}
-                      </span>
-                    )}
+                  <button key={type} disabled={!isTurn} onClick={(e) => onPieceClick(owner, piece.originalIndex, piece, e)} className={`relative flex items-center justify-center p-0.5 transition-all duration-200 ${isSelected ? 'scale-110 opacity-100' : 'opacity-80 hover:opacity-100 hover:scale-105'}`}>
+                    <div className={`relative w-8 h-8`}><ModernPiece type={type} owner={owner} promoted={false} size="small" /></div>
+                    {count > 1 && <span className="absolute -bottom-1 -right-1 bg-zinc-800 text-white text-[9px] font-medium px-1.5 rounded-full border border-white leading-none flex items-center justify-center h-4 min-w-[16px]">{count}</span>}
                   </button>
                 );
               })}
@@ -1422,7 +510,548 @@
           );
         }
 
-        // Render to #root
+        const PromotionModal = ({ pending, onChoice }) => (
+             <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 rounded-sm">
+               <div className="flex flex-col items-center gap-6 p-8 border border-zinc-200 bg-white rounded-lg shadow-2xl">
+                 <p className="text-xl font-bold tracking-widest text-zinc-800">PROMOTE?</p>
+                 <div className="flex gap-8">
+                   <button onClick={() => onChoice(true)} className="group flex flex-col items-center gap-2">
+                     <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded group-hover:border-rose-500 transition-all shadow-sm">
+                        <ModernPiece type={pending.board[pending.r][pending.c].type} owner={pending.turn} promoted={true} size="large" />
+                     </div>
+                     <span className="text-sm font-bold text-zinc-400 group-hover:text-rose-500">YES</span>
+                   </button>
+                   <button onClick={() => onChoice(false)} className="group flex flex-col items-center gap-2">
+                     <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded group-hover:border-zinc-800 transition-all shadow-sm">
+                        <ModernPiece type={pending.board[pending.r][pending.c].type} owner={pending.turn} promoted={false} size="large" />
+                     </div>
+                     <span className="text-sm font-bold text-zinc-400 group-hover:text-zinc-800">NO</span>
+                   </button>
+                 </div>
+               </div>
+             </div>
+        );
+
+        const ExplosionModal = ({ onChoice }) => (
+             <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-50/90 rounded-sm animate-[danger-pulse_2s_infinite]">
+               <div className="flex flex-col items-center gap-6 p-8 border border-red-200 bg-white rounded-lg shadow-2xl">
+                 <p className="text-2xl font-black italic tracking-widest text-red-600 animate-pulse">DETONATE?</p>
+                 <p className="text-xs text-red-400 max-w-[200px] text-center">Destroy surrounding pieces (SR or lower) and sacrifice self to opponent.</p>
+                 <div className="flex gap-8 mt-2">
+                   <button onClick={() => onChoice(true)} className="group flex flex-col items-center gap-2">
+                     <div className="w-16 h-16 flex items-center justify-center border-2 border-red-500 bg-red-50 rounded-full group-hover:scale-110 transition-all shadow-md"><span className="text-3xl">💥</span></div>
+                     <span className="text-sm font-bold text-red-500 group-hover:text-red-600">EXPLODE</span>
+                   </button>
+                   <button onClick={() => onChoice(false)} className="group flex flex-col items-center gap-2">
+                     <div className="w-16 h-16 flex items-center justify-center border border-zinc-200 bg-white rounded-full group-hover:border-zinc-400 transition-all shadow-sm"><span className="text-xl text-zinc-400">✖</span></div>
+                     <span className="text-sm font-bold text-zinc-400 group-hover:text-zinc-800">CANCEL</span>
+                   </button>
+                 </div>
+               </div>
+             </div>
+        );
+
+        /* =========================================
+           4. CUSTOM HOOKS (GAME LOGIC)
+           ========================================= */
+
+        const useShogiGame = () => {
+            const [board, setBoard] = useState(null); 
+            const [turn, setTurn] = useState(PLAYERS.SENTE);
+            const [hands, setHands] = useState(DEFAULT_HANDS);
+            const [selected, setSelected] = useState(null); 
+            const [validDestinations, setValidDestinations] = useState([]);
+            const [lastMove, setLastMove] = useState(null);
+            const [cutIn, setCutIn] = useState(null);
+            
+            // Special States
+            const [skillMode, setSkillMode] = useState(false);
+            const [promotionPending, setPromotionPending] = useState(null);
+            const [explosionPending, setExplosionPending] = useState(null); 
+            const [movingPiece, setMovingPiece] = useState(null);
+
+            // Effect States
+            const [effects, setEffects] = useState({ explosion: [], split: [], wind: [] });
+
+            useEffect(() => { setBoard(createInitialBoard()); }, []);
+
+            const triggerEffect = (type, cells) => {
+                setEffects(prev => ({ ...prev, [type]: cells }));
+                setTimeout(() => setEffects(prev => ({ ...prev, [type]: [] })), 800);
+            };
+
+            const playSound = useCallback((type) => { /* Placeholder for sound logic */ }, []);
+
+            // --- Move Calculation ---
+            useEffect(() => {
+                if (!board || !selected) {
+                    setValidDestinations([]);
+                    setSkillMode(false);
+                    return;
+                }
+                if (skillMode) { setValidDestinations([]); return; }
+
+                if (selected.type === 'board') {
+                    const piece = board[selected.r][selected.c];
+                    if (piece && piece.owner === turn) {
+                        setValidDestinations(getPieceMoves(piece, selected.r, selected.c, board));
+                    }
+                } else if (selected.type === 'hand') {
+                    setValidDestinations(getHandDropMoves(selected.piece, turn, board));
+                }
+            }, [selected, board, turn, skillMode]);
+
+            // --- Action Handlers ---
+            const handleBoardClick = (r, c, cellRefs, boardRef) => {
+                if (!board || promotionPending || explosionPending || movingPiece || cutIn) return;
+                const target = board[r][c];
+
+                // 1. Skill Execution
+                if (skillMode && selected && selected.type === 'board') {
+                    executeSkill(selected, r, c);
+                    return;
+                }
+
+                // 2. Select / Deselect Logic
+                if (!selected) {
+                    if (target && target.owner === turn) { setSelected({ type: 'board', r, c }); playSound('select'); }
+                    return;
+                }
+                
+                // Toggle Skill Mode
+                if (selected.type === 'board' && selected.r === r && selected.c === c) {
+                    const piece = board[r][c];
+                    const info = getPieceInfo(piece.type);
+                    if (info.skill && piece.skillCharges > 0) {
+                        setSkillMode(!skillMode); playSound('select');
+                    } else {
+                        setSelected(null); setSkillMode(false);
+                    }
+                    return;
+                }
+
+                if (target && target.owner === turn) {
+                    setSelected({ type: 'board', r, c }); setSkillMode(false); playSound('select');
+                    return;
+                }
+
+                // 3. Move Execution
+                if (!skillMode && validDestinations.some(m => m.r === r && m.c === c)) {
+                    prepareMoveAnimation(selected, r, c, cellRefs, boardRef);
+                } else {
+                    setSelected(null);
+                }
+            };
+
+            const handleHandClick = (owner, index, piece) => {
+                if (!board || promotionPending || explosionPending || movingPiece || cutIn || owner !== turn) return;
+                if (selected && selected.type === 'hand' && selected.index === index) {
+                    setSelected(null);
+                } else {
+                    setSelected({ type: 'hand', index, piece });
+                    setSkillMode(false);
+                    playSound('select');
+                }
+            };
+
+            // --- Core Logic Implementations ---
+            
+            const prepareMoveAnimation = (from, toR, toC, cellRefs, boardRef) => {
+                let startRect = null, endRect = null, animatedPiece = null;
+                
+                // Calculate Rects for Animation
+                if (cellRefs.current[toR]?.[toC]) endRect = cellRefs.current[toR][toC].getBoundingClientRect();
+                if (from.type === 'board') {
+                    if (cellRefs.current[from.r]?.[from.c]) startRect = cellRefs.current[from.r][from.c].getBoundingClientRect();
+                    animatedPiece = board[from.r][from.c];
+                } else {
+                    if (boardRef.current) {
+                        const br = boardRef.current.getBoundingClientRect();
+                        startRect = { top: br.top + br.height/2 - 20, left: br.left + br.width/2 - 20, width: 40, height: 40 };
+                    }
+                    animatedPiece = from.piece;
+                }
+
+                if (startRect && endRect && animatedPiece) {
+                    setMovingPiece({ piece: animatedPiece, fromPos: from.type === 'board' ? {r: from.r, c: from.c} : 'hand', startRect, endRect, toR, toC, fromInfo: from });
+                    playSound('move_start');
+                } else {
+                    executeMove(from, toR, toC);
+                }
+            };
+
+            const completeAnimation = () => {
+                if (!movingPiece) return;
+                executeMove(movingPiece.fromInfo, movingPiece.toR, movingPiece.toC);
+                setMovingPiece(null);
+            };
+
+            const executeSkill = (from, targetR, targetC) => {
+                const piece = board[from.r][from.c];
+                const info = getPieceInfo(piece.type);
+                if (!piece || piece.skillCharges <= 0) return;
+                
+                const newBoard = board.map(r => r.map(c => c ? {...c} : null));
+                const newHands = { ...hands, [PLAYERS.SENTE]: [...hands[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...hands[PLAYERS.GOTE]] };
+                newBoard[from.r][from.c].skillCharges -= 1;
+
+                if (info.skill.type === 'WIND') {
+                    // Wind Logic
+                    const pushDr = turn === PLAYERS.SENTE ? -1 : 1;
+                    const affectedCells = [];
+                    const processOrder = [];
+                    for(let r=0; r<9; r++) for(let c=0; c<9; c++) if(newBoard[r][c] && newBoard[r][c].owner !== turn) processOrder.push({r,c});
+                    processOrder.sort((a,b) => pushDr === -1 ? a.r - b.r : b.r - a.r);
+
+                    processOrder.forEach(pos => {
+                        const t = newBoard[pos.r][pos.c];
+                        let currR = pos.r, finalR = currR, moved = false;
+                        let nextR = currR + pushDr;
+                        while(nextR >= 0 && nextR < 9 && newBoard[nextR][pos.c] === null) {
+                            finalR = nextR; nextR += pushDr; moved = true;
+                        }
+                        if(moved) {
+                            newBoard[finalR][pos.c] = t; newBoard[pos.r][pos.c] = null;
+                            affectedCells.push({r: finalR, c: pos.c});
+                        }
+                    });
+                    triggerEffect('wind', affectedCells);
+                    setCutIn({ type: 'WIND', text: 'WIND BLAST', subText: 'REPEL' });
+
+                } else if (info.skill.type === 'BOMBER') {
+                    // Bomber Logic
+                    const targets = [];
+                    for(let i=-3; i<=3; i++) targets.push({r: targetR+i, c: targetC});
+                    for(let i=-3; i<=3; i++) if(i!==0) targets.push({r: targetR, c: targetC+i});
+                    triggerEffect('explosion', targets);
+                    
+                    targets.forEach(pos => {
+                        if(pos.r>=0 && pos.r<9 && pos.c>=0 && pos.c<9) {
+                            const t = newBoard[pos.r][pos.c];
+                            if(t && t.owner !== turn) {
+                                const tInfo = getPieceInfo(t.type);
+                                if(tInfo.rarity === RARITY.R || tInfo.rarity === RARITY.C) {
+                                    newHands[turn].push({ type: t.type, owner: turn, promoted: false, skillCharges: tInfo.skill?.maxCharges || 0 });
+                                    newBoard[pos.r][pos.c] = null;
+                                }
+                            }
+                        }
+                    });
+                    setCutIn({ type: 'BOMB_SKILL', text: 'BOMB SET', subText: 'DESTRUCTION' });
+                }
+                
+                updateGameState(newBoard, newHands, null, from); // Skill action doesn't move piece physically
+            };
+
+            const executeMove = (from, toR, toC) => {
+                const newBoard = board.map(r => r.map(c => c ? {...c} : null));
+                const newHands = { ...hands, [PLAYERS.SENTE]: [...hands[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...hands[PLAYERS.GOTE]] };
+                
+                let pieceObj, info;
+                let mustPromote = false, canPromote = false, canExplode = false, didSplit = false, captureOccurred = false;
+
+                // 1. Move or Drop?
+                if (from.type === 'board') {
+                    pieceObj = newBoard[from.r][from.c];
+                    newBoard[from.r][from.c] = null;
+                    info = getPieceInfo(pieceObj.type);
+
+                    // Capture Logic
+                    if (newBoard[toR][toC]) {
+                        const captured = newBoard[toR][toC];
+                        const capInfo = getPieceInfo(captured.type);
+                        newHands[turn].push({ type: captured.type, owner: turn, promoted: false, skillCharges: capInfo.skill?.maxCharges || 0 });
+                        captureOccurred = true;
+
+                        // Corruption Logic
+                        if (info.skill?.type === 'CORRUPTION' && !pieceObj.promoted) {
+                            const opp = turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE;
+                            let count = 0;
+                            for(let i=0; i<newHands[opp].length && count < info.skill.amount; i++) {
+                                if(newHands[opp][i].type !== 'FU') {
+                                    newHands[opp][i] = { ...newHands[opp][i], type: 'FU', promoted: false, skillCharges: 0 };
+                                    count++;
+                                }
+                            }
+                            if(count > 0) setCutIn({ type: 'CORRUPTION', text: 'CORRUPTION', subText: 'HANDS MODIFIED' });
+                        }
+                    }
+
+                    // Promotion & Special Logic Checks
+                    const isSente = turn === PLAYERS.SENTE;
+                    const isInZone = isSente ? toR <= 2 : toR >= 6;
+                    const wasInZone = isSente ? from.r <= 2 : from.r >= 6;
+                    
+                    if (info.isBomb && (isInZone || wasInZone)) canExplode = true;
+
+                    // Splitter Logic
+                    if (info.isSplitter && !pieceObj.promoted) {
+                        const dc = toC - from.c;
+                        const otherC = from.c - dc;
+                        if(otherC >= 0 && otherC < 9) {
+                            const otherT = newBoard[toR][otherC];
+                            if(!otherT || otherT.owner !== turn) {
+                                if(otherT) newHands[turn].push({ type: otherT.type, owner: turn, promoted: false, skillCharges: getPieceInfo(otherT.type).skill?.maxCharges||0 });
+                                newBoard[toR][otherC] = { ...pieceObj };
+                                didSplit = true;
+                                triggerEffect('split', [{r: toR, c: otherC}]);
+                            }
+                        }
+                    }
+
+                    // Promotion Rules
+                    if (pieceObj.type !== 'OU' && pieceObj.type !== 'KI' && !pieceObj.promoted && info.promotedMoves) {
+                        if (isInZone || wasInZone) {
+                            canPromote = true;
+                            if (['FU', 'SH', 'NH', 'FS', 'KY'].includes(pieceObj.type) && ((isSente && toR === 0) || (!isSente && toR === 8))) mustPromote = true;
+                            if (['KE', 'KD'].includes(pieceObj.type) && ((isSente && toR <= 1) || (!isSente && toR >= 7))) mustPromote = true;
+                        }
+                    }
+
+                } else {
+                    // Drop
+                    info = getPieceInfo(from.piece.type);
+                    pieceObj = { ...from.piece, owner: turn, skillCharges: info.skill?.maxCharges || 0 };
+                    newHands[turn].splice(from.index, 1);
+                }
+
+                newBoard[toR][toC] = pieceObj;
+
+                // Lancer Logic
+                if (info.isLancer) {
+                    const fwd = turn === PLAYERS.SENTE ? -1 : 1;
+                    const targets = [];
+                    if(!pieceObj.promoted) { targets.push({r:toR,c:toC}); if(newBoard[toR+fwd]?.[toC]!==undefined) targets.push({r:toR+fwd,c:toC}); }
+                    else { if(newBoard[toR+fwd]?.[toC]!==undefined) targets.push({r:toR+fwd,c:toC}); }
+                    
+                    if(targets.length>0) triggerEffect('explosion', targets);
+                    targets.forEach(p => {
+                        const t = newBoard[p.r][p.c];
+                        if(t && t.owner!==turn && getPieceInfo(t.type).rarity !== RARITY.SSR) { newBoard[p.r][p.c] = null; playSound('capture'); }
+                    });
+                }
+
+                // Handle Events
+                if (didSplit) setCutIn({ type: 'SPLIT', text: 'SPLIT', subText: 'DOUBLE TROUBLE' });
+                else if (captureOccurred && info.skill?.type !== 'CORRUPTION') { setCutIn({ type: 'CAPTURE', text: 'CAPTURE', subText: '' }); playSound('capture'); }
+                else playSound('place');
+
+                // Decide Next State
+                if (canExplode) {
+                    setExplosionPending({ board: newBoard, hands: newHands, r: toR, c: toC, prev: from.type==='board'?{r:from.r,c:from.c}:null });
+                } else if (mustPromote) {
+                    pieceObj.promoted = true;
+                    if(info.skill?.reloadAmount) pieceObj.skillCharges = info.skill.reloadAmount;
+                    setCutIn({ type: 'PROMOTION', text: 'PROMOTION', subText: '' });
+                    updateGameState(newBoard, newHands, {r:toR, c:toC}, from.type==='board'?{r:from.r,c:from.c}:null);
+                } else if (canPromote && from.type === 'board') {
+                    setPromotionPending({ board: newBoard, hands: newHands, r: toR, c: toC, turn, prev: {r:from.r, c:from.c} });
+                } else {
+                    updateGameState(newBoard, newHands, {r:toR, c:toC}, from.type==='board'?{r:from.r,c:from.c}:null);
+                }
+            };
+
+            const updateGameState = (newBoard, newHands, moveLoc, prevLoc) => {
+                setBoard(newBoard);
+                setHands(newHands);
+                setTurn(turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE);
+                setSelected(null);
+                setValidDestinations([]);
+                setSkillMode(false);
+                setPromotionPending(null);
+                setExplosionPending(null);
+                if (moveLoc) setLastMove({ from: prevLoc, to: moveLoc });
+            };
+
+            const resolvePromotion = (shouldPromote) => {
+                const { board: b, hands: h, r, c, prev } = promotionPending;
+                const nb = b.map(row => row.map(cell => cell ? {...cell} : null));
+                if (shouldPromote) {
+                    nb[r][c].promoted = true;
+                    const info = getPieceInfo(nb[r][c].type);
+                    if(info.skill?.reloadAmount) nb[r][c].skillCharges = info.skill.reloadAmount;
+                    setCutIn({ type: 'PROMOTION', text: 'PROMOTION', subText: '' });
+                    playSound('promote');
+                }
+                updateGameState(nb, h, {r,c}, prev);
+            };
+
+            const resolveExplosion = (shouldExplode) => {
+                const { board: b, hands: h, r, c, prev } = explosionPending;
+                if (!shouldExplode) { updateGameState(b, h, {r,c}, prev); return; }
+                
+                const nb = b.map(row => row.map(cell => cell ? {...cell} : null));
+                const nh = { ...h, [PLAYERS.SENTE]: [...h[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...h[PLAYERS.GOTE]] };
+                const targets = [];
+                for(let dr=-1; dr<=1; dr++) for(let dc=-1; dc<=1; dc++) targets.push({r:r+dr, c:c+dc});
+                triggerEffect('explosion', targets);
+
+                const me = nb[r][c];
+                nb[r][c] = null;
+                const opp = turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE;
+                nh[opp].push({ type: me.type, owner: opp, promoted: false, skillCharges: getPieceInfo(me.type).skill?.maxCharges || 0 });
+
+                targets.forEach(t => {
+                    if(t.r>=0 && t.r<9 && t.c>=0 && t.c<9 && nb[t.r][t.c] && getPieceInfo(nb[t.r][t.c].type).rarity !== RARITY.SSR) nb[t.r][t.c] = null;
+                });
+                setCutIn({ type: 'EXPLOSION', text: 'EXPLOSION', subText: 'SACRIFICE' });
+                updateGameState(nb, nh, {r,c}, prev);
+            };
+
+            const resetGame = () => {
+                if (window.confirm('Reset Game?')) {
+                    setBoard(createInitialBoard());
+                    setTurn(PLAYERS.SENTE);
+                    setHands(DEFAULT_HANDS);
+                    setSelected(null);
+                    setLastMove(null);
+                    setCutIn(null);
+                    setSkillMode(false);
+                }
+            };
+            
+            const dismissCutIn = () => setCutIn(null);
+
+            return {
+                board, turn, hands, selected, validDestinations, lastMove, cutIn, skillMode,
+                promotionPending, explosionPending, movingPiece, effects,
+                actions: {
+                    handleBoardClick, handleHandClick, resolvePromotion, resolveExplosion, resetGame, completeAnimation,
+                    dismissCutIn
+                },
+                refs: { playSound }
+            };
+        };
+
+        /* =========================================
+           5. MAIN APP CONTAINER
+           ========================================= */
+
+        function ModernShogi() {
+            const game = useShogiGame();
+            const boardRef = useRef(null);
+            const cellRefs = useRef(Array(9).fill(null).map(() => Array(9).fill(null)));
+
+            if (!game.board) return <div className="h-dvh w-full bg-white text-zinc-800 flex items-center justify-center">INITIALIZING...</div>;
+
+            return (
+                <div className="h-dvh w-full flex flex-col items-center justify-between py-4 font-sans select-none overflow-hidden touch-none relative">
+                    <ModernBackground isSkillMode={game.skillMode} />
+                    
+                    {/* UI Overlays */}
+                    {game.skillMode && (
+                        <div className="absolute top-1/4 left-0 right-0 text-center pointer-events-none z-20 animate-pulse">
+                            <h2 className="text-4xl font-black text-red-500 tracking-widest bg-white/80 backdrop-blur inline-block px-4 py-1 rounded">SKILL MODE</h2>
+                            <p className="text-sm font-bold text-red-600 mt-1 bg-white/80 inline-block px-2">TAP TARGET TO DETONATE</p>
+                        </div>
+                    )}
+                    {game.cutIn && <CutInOverlay {...game.cutIn} onComplete={game.actions.dismissCutIn} />}
+                    
+                    <div className={`absolute inset-0 flex flex-col items-center justify-between ${game.cutIn?.type === 'EXPLOSION' || game.cutIn?.type === 'BOMB_SKILL' ? 'animate-[explosion-shake_0.5s]' : ''}`}>
+                        
+                        {/* Menu */}
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-2 p-2 z-40">
+                            <div className="writing-vertical-rl text-[10px] text-zinc-400 tracking-widest uppercase mb-2">MODERN SHOGI</div>
+                            <button onClick={game.actions.resetGame} className="p-3 bg-white/50 backdrop-blur rounded-full text-zinc-500 hover:text-zinc-800 border border-zinc-200 shadow-sm"><RotateCcw size={20} /></button>
+                        </div>
+
+                        {/* Top: Gote Hand */}
+                        <div className="w-full flex justify-center rotate-180 transition-transform duration-500 z-10">
+                            <div className="flex flex-col items-center gap-2 w-full max-w-[320px] sm:max-w-md">
+                                <PlayerLabel owner={PLAYERS.GOTE} currentTurn={game.turn} />
+                                <ModernHand owner={PLAYERS.GOTE} pieces={game.hands[PLAYERS.GOTE]} isTurn={game.turn === PLAYERS.GOTE} onPieceClick={game.actions.handleHandClick} selected={game.selected} />
+                            </div>
+                        </div>
+
+                        {/* Center: Board */}
+                        <div className="flex-1 flex items-center justify-center w-full px-2 z-10" ref={boardRef}>
+                             <div className={`relative p-2 sm:p-3 border rounded-sm shadow-xl transition-colors duration-300 ${game.skillMode ? 'bg-red-50 border-red-300' : 'bg-white border-zinc-200'}`}>
+                               <div className={`grid grid-cols-9 gap-px border transition-colors duration-300 ${game.skillMode ? 'bg-red-200 border-red-300' : 'bg-zinc-300 border-zinc-300'}`}>
+                                 {game.board.map((row, r) => row.map((cell, c) => (
+                                     <BoardCell 
+                                        key={`${r}-${c}`} r={r} c={c} cell={cell}
+                                        game={game} 
+                                        cellRef={el => { if (cellRefs.current[r]) cellRefs.current[r][c] = el; }}
+                                        onClick={() => game.actions.handleBoardClick(r, c, cellRefs, boardRef)}
+                                     />
+                                 )))}
+                               </div>
+                             </div>
+
+                             {game.promotionPending && <PromotionModal pending={game.promotionPending} onChoice={game.actions.resolvePromotion} />}
+                             {game.explosionPending && <ExplosionModal onChoice={game.actions.resolveExplosion} />}
+                             {game.movingPiece && <FlyingPiece {...game.movingPiece} onComplete={game.actions.completeAnimation} />}
+                        </div>
+
+                        {/* Bottom: Sente Hand */}
+                        <div className="w-full flex justify-center z-10">
+                            <div className="flex flex-col items-center gap-2 w-full max-w-[320px] sm:max-w-md">
+                                <PlayerLabel owner={PLAYERS.SENTE} currentTurn={game.turn} />
+                                <ModernHand owner={PLAYERS.SENTE} pieces={game.hands[PLAYERS.SENTE]} isTurn={game.turn === PLAYERS.SENTE} onPieceClick={game.actions.handleHandClick} selected={game.selected} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const PlayerLabel = ({ owner, currentTurn }) => (
+            <div className={`flex items-center gap-2 px-4 py-1 border rounded-full text-xs tracking-wide transition-all duration-300 ${currentTurn === owner ? 'border-zinc-800 bg-zinc-800 text-white shadow-md' : 'border-zinc-300 text-zinc-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${currentTurn === owner ? 'bg-white' : 'bg-zinc-400'}`}></span>
+                PLAYER {owner.toUpperCase()}
+            </div>
+        );
+
+        const BoardCell = ({ r, c, cell, game, cellRef, onClick }) => {
+            const isSelected = game.selected && game.selected.type === 'board' && game.selected.r === r && game.selected.c === c;
+            const isValidDest = game.validDestinations.some(m => m.r === r && m.c === c);
+            const isLastMoveSrc = game.lastMove?.from?.r === r && game.lastMove?.from?.c === c;
+            const isLastMoveDst = game.lastMove?.to?.r === r && game.lastMove?.to?.c === c;
+            const isMovingSource = game.movingPiece && game.movingPiece.fromPos !== 'hand' && game.movingPiece.fromPos.r === r && game.movingPiece.fromPos.c === c;
+            const showPiece = cell && !isMovingSource;
+
+            const isExploding = game.effects.explosion.some(ec => ec.r === r && ec.c === c);
+            const isSplitting = game.effects.split.some(ec => ec.r === r && ec.c === c);
+            const isWind = game.effects.wind.some(ec => ec.r === r && ec.c === c);
+
+            return (
+                <div 
+                    ref={cellRef}
+                    onClick={onClick}
+                    className={`
+                        w-[min(10vw,36px)] h-[min(11vw,40px)] sm:w-[min(10vw,48px)] sm:h-[min(11vw,52px)] md:w-14 md:h-16
+                        flex items-center justify-center relative transition-colors duration-200
+                        ${isExploding ? 'explosion-fade' : ''} ${isSplitting ? 'split-fade' : ''} ${isWind ? 'wind-fade' : ''}
+                        ${game.skillMode ? 'bg-red-50/50 hover:bg-red-200 cursor-crosshair' : 'bg-white'}
+                        ${isValidDest ? 'cursor-pointer' : ''}
+                    `}
+                >
+                    {!game.skillMode && isLastMoveSrc && <div className="absolute inset-0 bg-yellow-100" />}
+                    {!game.skillMode && isLastMoveDst && <div className="absolute inset-0 bg-yellow-100/50" />}
+                    
+                    {isValidDest && (
+                        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                        <div className="w-2 h-2 bg-red-400/50 rounded-full"></div>
+                        {cell && <div className="absolute inset-0 border border-red-400"></div>}
+                        </div>
+                    )}
+                    
+                    {game.skillMode && (
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-50 pointer-events-none z-20 text-red-600">
+                            <Crosshair size={24} />
+                        </div>
+                    )}
+
+                    {showPiece && (
+                        <ModernPiece 
+                            type={cell.type} owner={cell.owner} promoted={cell.promoted}
+                            charges={cell.skillCharges} isSelected={isSelected}
+                        />
+                    )}
+                </div>
+            );
+        };
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<ModernShogi />);
     </script>
