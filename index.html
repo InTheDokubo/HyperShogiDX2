@@ -119,6 +119,7 @@
             SR: 'SR',
             R: 'Rare',
             C: 'Common',
+            HOLE: 'HOLE' // Special type for holes
         };
 
         // --- Move Definitions ---
@@ -179,6 +180,36 @@
                 moves: MOVES.KEIMA, 
                 promotedMoves: [...MOVES.KEIMA, ...MOVES.BACK_KEIMA], 
                 isSplitter: true 
+            },
+            // NEW: Trouble Maker (厄介者)
+            TR: {
+                id: 'TR', name: '厄介', promotedName: '侵略', rarity: RARITY.C,
+                moves: [MOVES.FRONT], // 歩と同じ
+                promotedMoves: MOVE_SETS.GOLD, // 金と同じ
+                skill: { type: 'BRAINWASH', maxCharges: 1 } // 成った後のみ有効なロジックを追加
+            },
+            // NEW: Relative Move (相対移動)
+            RM: {
+                id: 'RM', name: '盤変', promotedName: '盤神', rarity: RARITY.R,
+                moves: MOVE_SETS.KING,
+                promotedMoves: MOVE_SETS.KING.map(m => ({ ...m, continuous: true, limit: 2 })), // 全方向2マス
+                skill: { type: 'BOARD_EXPANSION' },
+                isUnique: true // 1枚制限
+            },
+            // NEW: Hole Operator (落とし穴業者)
+            HO: {
+                id: 'HO', name: '落穴', promotedName: '底無', rarity: RARITY.R,
+                moves: MOVES.DIAG_FRONT, // 斜め前方のみ
+                promotedMoves: MOVE_SETS.GOLD,
+                skill: { type: 'PITFALL', maxCharges: 1 }
+            },
+            // NEW: Roaring Chariot (轟車)
+            GO: {
+                id: 'GO', name: '轟車', promotedName: '轟轟', rarity: RARITY.SR,
+                moves: [MOVES.FRONT],
+                promotedMoves: [MOVES.BACK], // 成ると後ろにしか下がれない
+                skill: { type: 'ROARING_CHARIOT', maxCharges: 1 },
+                isRoaring: true // 特殊フラグ（成った時のパッシブ効果用）
             },
             GI: { 
                 id: 'GI', name: '銀将', promotedName: '成銀', rarity: RARITY.R, 
@@ -277,21 +308,32 @@
           let activeMoves = piece.promoted && info.promotedMoves ? info.promotedMoves : info.moves;
           if (!Array.isArray(activeMoves)) activeMoves = [activeMoves];
 
+          const rows = board.length;
+          const cols = board[0].length;
+
           activeMoves.forEach(moveDef => {
               const dr = isSente ? moveDef.dr : -moveDef.dr;
               const dc = isSente ? moveDef.dc : -moveDef.dc;
               const continuous = moveDef.continuous;
+              const limit = moveDef.limit || 99; // New limit property
+
               let nr = r + dr;
               let nc = c + dc;
+              let steps = 0;
+
               if (!continuous) {
-                  if (nr >= 0 && nr < 9 && nc >= 0 && nc < 9) {
+                  if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
                       const target = board[nr][nc];
+                      if (target && target.isObstacle) return; 
                       if (target === null || target.owner !== piece.owner) moves.push({ r: nr, c: nc });
                   }
                   return;
               }
-              while (nr >= 0 && nr < 9 && nc >= 0 && nc < 9) {
+
+              while (nr >= 0 && nr < rows && nc >= 0 && nc < cols && steps < limit) {
                   const target = board[nr][nc];
+                  if (target && target.isObstacle) break; 
+                  
                   if (target === null) {
                       moves.push({ r: nr, c: nc });
                   } else {
@@ -300,6 +342,7 @@
                   }
                   nr += dr;
                   nc += dc;
+                  steps++;
               }
           });
           return moves;
@@ -307,25 +350,34 @@
 
         const getHandDropMoves = (piece, turn, board) => {
             const moves = [];
-            for (let r = 0; r < 9; r++) {
-                for (let c = 0; c < 9; c++) {
+            const rows = board.length;
+            const cols = board[0].length;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
                     if (board[r][c] === null) {
                         // Pawn Drop Restriction (Nifu)
                         if (piece.type === 'FU') {
                             let hasPawn = false;
-                            for (let i = 0; i < 9; i++) if (board[i][c]?.owner === turn && board[i][c]?.type === 'FU' && !board[i][c].promoted) hasPawn = true;
+                            for (let i = 0; i < rows; i++) if (board[i][c]?.owner === turn && board[i][c]?.type === 'FU' && !board[i][c].promoted) hasPawn = true;
                             if (hasPawn) continue;
                             if (turn === PLAYERS.SENTE && r === 0) continue;
-                            if (turn === PLAYERS.GOTE && r === 8) continue;
+                            if (turn === PLAYERS.GOTE && r === rows - 1) continue;
                         }
                         // Dead End Restrictions
                         if (['NH', 'SH', 'FS', 'KY'].includes(piece.type)) { 
                            if (turn === PLAYERS.SENTE && r === 0) continue;
-                           if (turn === PLAYERS.GOTE && r === 8) continue;
+                           if (turn === PLAYERS.GOTE && r === rows - 1) continue;
                         }
-                        if (['KE', 'KD'].includes(piece.type)) {
-                           if (turn === PLAYERS.SENTE && r <= 1) continue;
-                           if (turn === PLAYERS.GOTE && r >= 7) continue;
+                        if (['KE', 'KD', 'HO'].includes(piece.type)) { 
+                           if (['KE', 'KD'].includes(piece.type)) {
+                               if (turn === PLAYERS.SENTE && r <= 1) continue;
+                               if (turn === PLAYERS.GOTE && r >= rows - 2) continue;
+                           }
+                           if (piece.type === 'HO') {
+                               if (turn === PLAYERS.SENTE && r === 0) continue;
+                               if (turn === PLAYERS.GOTE && r === rows - 1) continue;
+                           }
                         }
                         moves.push({ r, c });
                     }
@@ -374,6 +426,11 @@
                 type === 'SPLIT' ? 'text-cyan-500 drop-shadow-xl from-blue-400 to-cyan-300' :
                 type === 'BOMB_SKILL' ? 'text-orange-500 drop-shadow-xl from-red-500 to-yellow-500' :
                 type === 'EXPLOSION' ? 'text-red-600 drop-shadow-xl' :
+                type === 'PITFALL' ? 'text-zinc-800 drop-shadow-xl from-black to-zinc-600' :
+                type === 'ROAR' ? 'text-red-700 drop-shadow-xl from-red-900 to-orange-600' : 
+                type === 'EXPANSION' ? 'text-teal-500 drop-shadow-xl from-teal-400 to-emerald-600' :
+                type === 'BRAINWASH' ? 'text-fuchsia-600 drop-shadow-xl from-fuchsia-500 to-purple-800' :
+                type === 'TROUBLE' ? 'text-violet-600 drop-shadow-xl from-violet-500 to-indigo-800' :
                 type === 'CHECK' ? 'text-rose-600 drop-shadow-xl' :
                 type === 'PROMOTION' ? 'text-amber-500 drop-shadow-xl' :
                 type === 'CAPTURE' ? 'text-blue-600 drop-shadow-xl' :
@@ -391,7 +448,7 @@
         };
 
         // --- Modern Piece Component ---
-        const ModernPiece = ({ type, owner, promoted, charges, size = 'large', style = {}, isSelected = false }) => {
+        const ModernPiece = ({ type, owner, promoted, charges, size = 'large', style = {}, isSelected = false, isFrozen = false }) => {
           const isGote = owner === PLAYERS.GOTE;
           const info = getPieceInfo(type);
           const name = promoted && info.promotedName ? info.promotedName : info.name;
@@ -443,6 +500,8 @@
             >
               {isSelected && <div className="absolute inset-[-6px] border-2 border-slate-400 rounded-full animate-[select-pulse_1s_infinite]" style={{ clipPath: pentagonPath }} />}
               
+              {isFrozen && <div className="absolute inset-[-8px] z-40 bg-cyan-300/30 backdrop-blur-[1px] border-2 border-cyan-400/50 rounded-full animate-pulse pointer-events-none" style={{ clipPath: pentagonPath }}></div>}
+
               <div className={`absolute inset-0 ${styles.borderColor}`} style={{ clipPath: pentagonPath, background: rarity === RARITY.SSR ? 'conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' : undefined }}>
                  {rarity === RARITY.SSR && <div className={`absolute inset-[-50%] w-[200%] h-[200%] ${styles.animationClass}`} style={{ background: 'inherit' }} />}
               </div>
@@ -566,6 +625,7 @@
             
             // Special States
             const [skillMode, setSkillMode] = useState(false);
+            const [brainwashState, setBrainwashState] = useState(null); // { step: 'SELECT_TARGET' | 'MOVE_TARGET', targetPos: {r,c} }
             const [promotionPending, setPromotionPending] = useState(null);
             const [explosionPending, setExplosionPending] = useState(null); 
             const [movingPiece, setMovingPiece] = useState(null);
@@ -587,9 +647,29 @@
                 if (!board || !selected) {
                     setValidDestinations([]);
                     setSkillMode(false);
+                    setBrainwashState(null);
                     return;
                 }
-                if (skillMode) { setValidDestinations([]); return; }
+                
+                // Brainwash Logic
+                if (brainwashState && brainwashState.step === 'MOVE_TARGET') {
+                    const target = board[brainwashState.targetPos.r][brainwashState.targetPos.c];
+                    // Calculate moves for the ENEMY piece as if it were moving
+                    setValidDestinations(getPieceMoves(target, brainwashState.targetPos.r, brainwashState.targetPos.c, board));
+                    return;
+                }
+
+                if (skillMode) { 
+                    const piece = board[selected.r][selected.c];
+                    if (piece.type === 'TR' && piece.promoted) {
+                        // Brainwash init: no destinations yet, waiting for target click
+                        setValidDestinations([]);
+                        if (!brainwashState) setBrainwashState({ step: 'SELECT_TARGET' });
+                    } else {
+                        setValidDestinations([]); 
+                    }
+                    return; 
+                }
 
                 if (selected.type === 'board') {
                     const piece = board[selected.r][selected.c];
@@ -599,22 +679,51 @@
                 } else if (selected.type === 'hand') {
                     setValidDestinations(getHandDropMoves(selected.piece, turn, board));
                 }
-            }, [selected, board, turn, skillMode]);
+            }, [selected, board, turn, skillMode, brainwashState]);
 
             // --- Action Handlers ---
             const handleBoardClick = (r, c, cellRefs, boardRef) => {
                 if (!board || promotionPending || explosionPending || movingPiece || cutIn) return;
                 const target = board[r][c];
 
-                // 1. Skill Execution
+                // 0. Brainwash Interactions
+                if (skillMode && brainwashState) {
+                    if (brainwashState.step === 'SELECT_TARGET') {
+                        // Picking enemy to brainwash
+                        if (target && target.owner !== turn && !target.isObstacle) {
+                            setBrainwashState({ step: 'MOVE_TARGET', targetPos: {r, c} });
+                            playSound('select');
+                        }
+                        return;
+                    } else if (brainwashState.step === 'MOVE_TARGET') {
+                        // Picking destination for brainwashed piece
+                        if (validDestinations.some(m => m.r === r && m.c === c)) {
+                            executeBrainwashMove(brainwashState.targetPos, r, c);
+                        } else {
+                            // Cancel or re-select
+                            if (target && target.owner !== turn) {
+                                setBrainwashState({ step: 'MOVE_TARGET', targetPos: {r, c} }); // Change target
+                            } else {
+                                setBrainwashState(null); setSkillMode(false); setSelected(null);
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // 1. Skill Execution (Normal)
                 if (skillMode && selected && selected.type === 'board') {
-                    executeSkill(selected, r, c);
-                    return;
+                    const piece = board[selected.r][selected.c];
+                    // Skip if Brainwash (handled above)
+                    if (!(piece.type === 'TR' && piece.promoted)) {
+                        executeSkill(selected, r, c);
+                        return;
+                    }
                 }
 
                 // 2. Select / Deselect Logic
                 if (!selected) {
-                    if (target && target.owner === turn) { setSelected({ type: 'board', r, c }); playSound('select'); }
+                    if (target && target.owner === turn && !target.frozen) { setSelected({ type: 'board', r, c }); playSound('select'); }
                     return;
                 }
                 
@@ -623,15 +732,20 @@
                     const piece = board[r][c];
                     const info = getPieceInfo(piece.type);
                     if (info.skill && piece.skillCharges > 0) {
-                        setSkillMode(!skillMode); playSound('select');
+                        // TR skill only if promoted
+                        if (piece.type === 'TR' && !piece.promoted) {
+                             setSelected(null); setSkillMode(false);
+                        } else {
+                             setSkillMode(!skillMode); playSound('select');
+                        }
                     } else {
                         setSelected(null); setSkillMode(false);
                     }
                     return;
                 }
 
-                if (target && target.owner === turn) {
-                    setSelected({ type: 'board', r, c }); setSkillMode(false); playSound('select');
+                if (target && target.owner === turn && !target.frozen) {
+                    setSelected({ type: 'board', r, c }); setSkillMode(false); setBrainwashState(null); playSound('select');
                     return;
                 }
 
@@ -650,6 +764,7 @@
                 } else {
                     setSelected({ type: 'hand', index, piece });
                     setSkillMode(false);
+                    setBrainwashState(null);
                     playSound('select');
                 }
             };
@@ -686,6 +801,48 @@
                 setMovingPiece(null);
             };
 
+            const executeBrainwashMove = (fromPos, toR, toC) => {
+                const newBoard = board.map(r => r.map(c => c ? {...c} : null));
+                const newHands = { ...hands, [PLAYERS.SENTE]: [...hands[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...hands[PLAYERS.GOTE]] };
+                
+                const target = newBoard[fromPos.r][fromPos.c];
+                
+                // Consume Charge
+                if (selected && selected.type === 'board') {
+                    newBoard[selected.r][selected.c].skillCharges -= 1;
+                }
+
+                // Handle Capture (by the brainwashed piece)
+                if (newBoard[toR][toC]) {
+                    const captured = newBoard[toR][toC];
+                    // Captured piece goes to ME (the one who brainwashed), or the OWNER of the piece?
+                    // "一回勝手に操作する" -> Usually the controller gets the benefit.
+                    // Let's give it to the brainwasher (current turn).
+                    const tInfo = getPieceInfo(captured.type);
+                    newHands[turn].push({ type: captured.type, owner: turn, promoted: false, skillCharges: tInfo.skill?.maxCharges || 0 });
+                    
+                    // TR Check for the captured piece?
+                    // If I brainwash enemy A to kill enemy B (TR).
+                    // Enemy B dies. Enemy B (TR) effect triggers: "Attacker becomes mine".
+                    // Attacker is Enemy A. Enemy A changes owner to Enemy B's owner.
+                    // They are same owner usually. So no effect.
+                    // If I brainwash enemy A to kill MY piece B (TR).
+                    // My piece B (TR) dies. Attacker (Enemy A) becomes MY piece.
+                    if (captured.type === 'TR' && !captured.promoted) {
+                        target.owner = captured.owner; // Betrayal logic
+                    }
+                }
+
+                // Move
+                newBoard[fromPos.r][fromPos.c] = null;
+                newBoard[toR][toC] = target;
+                target.frozen = true; // Freeze for next turn
+
+                setCutIn({ type: 'BRAINWASH', text: 'BRAINWASH', subText: 'PUPPET MOVE' });
+                
+                updateGameState(newBoard, newHands, {r:toR, c:toC}, fromPos);
+            };
+
             const executeSkill = (from, targetR, targetC) => {
                 const piece = board[from.r][from.c];
                 const info = getPieceInfo(piece.type);
@@ -700,14 +857,16 @@
                     const pushDr = turn === PLAYERS.SENTE ? -1 : 1;
                     const affectedCells = [];
                     const processOrder = [];
-                    for(let r=0; r<9; r++) for(let c=0; c<9; c++) if(newBoard[r][c] && newBoard[r][c].owner !== turn) processOrder.push({r,c});
+                    const rows = newBoard.length;
+                    const cols = newBoard[0].length;
+                    for(let r=0; r<rows; r++) for(let c=0; c<cols; c++) if(newBoard[r][c] && newBoard[r][c].owner !== turn) processOrder.push({r,c});
                     processOrder.sort((a,b) => pushDr === -1 ? a.r - b.r : b.r - a.r);
 
                     processOrder.forEach(pos => {
                         const t = newBoard[pos.r][pos.c];
                         let currR = pos.r, finalR = currR, moved = false;
                         let nextR = currR + pushDr;
-                        while(nextR >= 0 && nextR < 9 && newBoard[nextR][pos.c] === null) {
+                        while(nextR >= 0 && nextR < rows && newBoard[nextR][pos.c] === null) {
                             finalR = nextR; nextR += pushDr; moved = true;
                         }
                         if(moved) {
@@ -721,12 +880,14 @@
                 } else if (info.skill.type === 'BOMBER') {
                     // Bomber Logic
                     const targets = [];
+                    const rows = newBoard.length;
+                    const cols = newBoard[0].length;
                     for(let i=-3; i<=3; i++) targets.push({r: targetR+i, c: targetC});
                     for(let i=-3; i<=3; i++) if(i!==0) targets.push({r: targetR, c: targetC+i});
                     triggerEffect('explosion', targets);
                     
                     targets.forEach(pos => {
-                        if(pos.r>=0 && pos.r<9 && pos.c>=0 && pos.c<9) {
+                        if(pos.r>=0 && pos.r<rows && pos.c>=0 && pos.c<cols) {
                             const t = newBoard[pos.r][pos.c];
                             if(t && t.owner !== turn) {
                                 const tInfo = getPieceInfo(t.type);
@@ -738,17 +899,86 @@
                         }
                     });
                     setCutIn({ type: 'BOMB_SKILL', text: 'BOMB SET', subText: 'DESTRUCTION' });
+                } else if (info.skill.type === 'PITFALL') {
+                    // Pitfall Logic
+                    if (newBoard[targetR][targetC] !== null) return; // Must be empty
+                    
+                    newBoard[targetR][targetC] = { type: 'HOLE', isObstacle: true, owner: null };
+                    newBoard[from.r][from.c] = null; // Consume self
+                    
+                    triggerEffect('explosion', [{r: targetR, c: targetC}]);
+                    setCutIn({ type: 'PITFALL', text: 'PITFALL', subText: 'VOID CREATED' });
+                } else if (info.skill.type === 'ROARING_CHARIOT') {
+                    // Roaring Chariot Logic
+                    const rows = newBoard.length;
+                    const cols = newBoard[0].length;
+                    const forward = turn === PLAYERS.SENTE ? -1 : 1;
+                    const startR = from.r;
+                    const startC = from.c;
+                    const endR = turn === PLAYERS.SENTE ? 0 : rows - 1; 
+                    
+                    const me = newBoard[startR][startC];
+                    newBoard[startR][startC] = null;
+
+                    // Place self at end (if not hole)
+                    if (!newBoard[endR][startC]?.isObstacle) {
+                        newBoard[endR][startC] = me;
+                        me.promoted = true; 
+                    }
+                    
+                    // Effect Zone: Path + 1 left/right
+                    const effectCells = [];
+                    const opponent = turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE;
+                    
+                    let currR = startR + forward;
+                    while (currR !== endR + forward) {
+                        for (let dc = -1; dc <= 1; dc++) { // Width 3
+                            const c = startC + dc;
+                            if (c >= 0 && c < cols && currR >= 0 && currR < rows) {
+                                effectCells.push({r: currR, c});
+                                
+                                const target = newBoard[currR][c];
+                                if (target && !target.isObstacle) {
+                                    if (currR === endR && c === startC) {
+                                       // Skip self position (handled by placement)
+                                    } else {
+                                        const tInfo = getPieceInfo(target.type);
+                                        // Indiscriminate capture
+                                        if (target.owner !== turn) {
+                                            newHands[turn].push({ type: target.type, owner: turn, promoted: false, skillCharges: tInfo.skill?.maxCharges || 0 });
+                                        } else {
+                                            newHands[opponent].push({ type: target.type, owner: opponent, promoted: false, skillCharges: tInfo.skill?.maxCharges || 0 });
+                                        }
+                                        newBoard[currR][c] = null;
+                                    }
+                                }
+                            }
+                        }
+                        currR += forward;
+                    }
+
+                    triggerEffect('explosion', effectCells);
+                    setCutIn({ type: 'ROAR', text: 'ROARING CHARIOT', subText: 'PATH OF DESTRUCTION' });
                 }
                 
                 updateGameState(newBoard, newHands, null, from); // Skill action doesn't move piece physically
             };
 
             const executeMove = (from, toR, toC) => {
-                const newBoard = board.map(r => r.map(c => c ? {...c} : null));
+                let newBoard = board.map(r => r.map(c => c ? {...c} : null));
                 const newHands = { ...hands, [PLAYERS.SENTE]: [...hands[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...hands[PLAYERS.GOTE]] };
                 
                 let pieceObj, info;
                 let mustPromote = false, canPromote = false, canExplode = false, didSplit = false, captureOccurred = false;
+                let boardExpanded = false;
+                let troubleTriggered = false;
+
+                // Variables for scope
+                let isInZone = false;
+                let wasInZone = false;
+                const isSente = turn === PLAYERS.SENTE;
+                const rows = newBoard.length;
+                const cols = newBoard[0].length;
 
                 // 1. Move or Drop?
                 if (from.type === 'board') {
@@ -756,12 +986,24 @@
                     newBoard[from.r][from.c] = null;
                     info = getPieceInfo(pieceObj.type);
 
+                    // Zone Check
+                    isInZone = isSente ? toR <= 2 : toR >= rows - 3;
+                    wasInZone = isSente ? from.r <= 2 : from.r >= rows - 3;
+
                     // Capture Logic
                     if (newBoard[toR][toC]) {
                         const captured = newBoard[toR][toC];
                         const capInfo = getPieceInfo(captured.type);
                         newHands[turn].push({ type: captured.type, owner: turn, promoted: false, skillCharges: capInfo.skill?.maxCharges || 0 });
                         captureOccurred = true;
+                        
+                        newBoard[toR][toC] = null;
+
+                        // TROUBLE MAKER (TR) Logic
+                        if (captured.type === 'TR' && !captured.promoted) {
+                            pieceObj.owner = captured.owner; // Swaps owner!
+                            troubleTriggered = true;
+                        }
 
                         // Corruption Logic
                         if (info.skill?.type === 'CORRUPTION' && !pieceObj.promoted) {
@@ -777,21 +1019,17 @@
                         }
                     }
 
-                    // Promotion & Special Logic Checks
-                    const isSente = turn === PLAYERS.SENTE;
-                    const isInZone = isSente ? toR <= 2 : toR >= 6;
-                    const wasInZone = isSente ? from.r <= 2 : from.r >= 6;
-                    
+                    // Special Checks
                     if (info.isBomb && (isInZone || wasInZone)) canExplode = true;
 
                     // Splitter Logic
                     if (info.isSplitter && !pieceObj.promoted) {
                         const dc = toC - from.c;
                         const otherC = from.c - dc;
-                        if(otherC >= 0 && otherC < 9) {
+                        if(otherC >= 0 && otherC < cols) {
                             const otherT = newBoard[toR][otherC];
-                            if(!otherT || otherT.owner !== turn) {
-                                if(otherT) newHands[turn].push({ type: otherT.type, owner: turn, promoted: false, skillCharges: getPieceInfo(otherT.type).skill?.maxCharges||0 });
+                            if(!otherT || (!otherT.isObstacle && otherT.owner !== turn)) { 
+                                if(otherT && !otherT.isObstacle) newHands[turn].push({ type: otherT.type, owner: turn, promoted: false, skillCharges: getPieceInfo(otherT.type).skill?.maxCharges||0 });
                                 newBoard[toR][otherC] = { ...pieceObj };
                                 didSplit = true;
                                 triggerEffect('split', [{r: toR, c: otherC}]);
@@ -799,13 +1037,42 @@
                         }
                     }
 
-                    // Promotion Rules
+                    // Promotion Rules Check (Logic Preparation)
                     if (pieceObj.type !== 'OU' && pieceObj.type !== 'KI' && !pieceObj.promoted && info.promotedMoves) {
                         if (isInZone || wasInZone) {
                             canPromote = true;
-                            if (['FU', 'SH', 'NH', 'FS', 'KY'].includes(pieceObj.type) && ((isSente && toR === 0) || (!isSente && toR === 8))) mustPromote = true;
-                            if (['KE', 'KD'].includes(pieceObj.type) && ((isSente && toR <= 1) || (!isSente && toR >= 7))) mustPromote = true;
+                            if (['FU', 'SH', 'NH', 'FS', 'KY', 'HO'].includes(pieceObj.type) && ((isSente && toR === 0) || (!isSente && toR === rows - 1))) mustPromote = true;
+                            if (['KE', 'KD'].includes(pieceObj.type) && ((isSente && toR <= 1) || (!isSente && toR >= rows - 2))) mustPromote = true;
                         }
+                    }
+
+                    // BOARD EXPANSION SKILL (RM)
+                    if (info.skill?.type === 'BOARD_EXPANSION' && !pieceObj.promoted) {
+                        // Check move direction
+                        const dr = toR - from.r;
+                        const dc = toC - from.c;
+                        
+                        let expandRows = (dr !== 0); // Vertical movement -> insert row
+                        let expandCols = (dc !== 0); // Horizontal movement -> insert col
+
+                        // Insert Col
+                        if (expandCols) {
+                             const insertC = Math.max(from.c, toC);
+                             newBoard.forEach(row => row.splice(insertC, 0, null));
+                             if (toC >= insertC) toC++;
+                             boardExpanded = true;
+                        }
+
+                        // Insert Row
+                        if (expandRows) {
+                            const newRow = Array(newBoard[0].length).fill(null);
+                            const insertR = Math.max(from.r, toR);
+                            newBoard.splice(insertR, 0, newRow);
+                            if (toR >= insertR) toR++;
+                            boardExpanded = true;
+                        }
+                        
+                        if (boardExpanded) setCutIn({ type: 'EXPANSION', text: 'BOARD EXPAND', subText: 'SPACE DISTORTION' });
                     }
 
                 } else {
@@ -817,24 +1084,58 @@
 
                 newBoard[toR][toC] = pieceObj;
 
+                // --- Post-Move Effects ---
+
                 // Lancer Logic
-                if (info.isLancer) {
+                if (info.isLancer && from.type === 'board') {
                     const fwd = turn === PLAYERS.SENTE ? -1 : 1;
                     const targets = [];
-                    if(!pieceObj.promoted) { targets.push({r:toR,c:toC}); if(newBoard[toR+fwd]?.[toC]!==undefined) targets.push({r:toR+fwd,c:toC}); }
-                    else { if(newBoard[toR+fwd]?.[toC]!==undefined) targets.push({r:toR+fwd,c:toC}); }
+                    const currentRows = newBoard.length;
+                    if(!pieceObj.promoted) { targets.push({r:toR,c:toC}); if(toR+fwd >= 0 && toR+fwd < currentRows) targets.push({r:toR+fwd,c:toC}); }
+                    else { if(toR+fwd >= 0 && toR+fwd < currentRows) targets.push({r:toR+fwd,c:toC}); }
                     
                     if(targets.length>0) triggerEffect('explosion', targets);
                     targets.forEach(p => {
                         const t = newBoard[p.r][p.c];
-                        if(t && t.owner!==turn && getPieceInfo(t.type).rarity !== RARITY.SSR) { newBoard[p.r][p.c] = null; playSound('capture'); }
+                        if(t && !t.isObstacle && t.owner!==turn && getPieceInfo(t.type).rarity !== RARITY.SSR) { newBoard[p.r][p.c] = null; playSound('capture'); }
                     });
                 }
 
+                // Roaring Chariot (Promoted) Logic
+                if (info.isRoaring && pieceObj.promoted && from.type === 'board') {
+                    const targets = [];
+                    const currentRows = newBoard.length;
+                    const currentCols = newBoard[0].length;
+                    for(let dr=-1; dr<=1; dr++) {
+                        for(let dc=-1; dc<=1; dc++) {
+                            if(dr===0 && dc===0) continue;
+                            targets.push({r: toR+dr, c: toC+dc});
+                        }
+                    }
+                    
+                    let hit = false;
+                    targets.forEach(p => {
+                        if(p.r>=0 && p.r<currentRows && p.c>=0 && p.c<currentCols) {
+                            const t = newBoard[p.r][p.c];
+                            if(t && !t.isObstacle) {
+                                const tInfo = getPieceInfo(t.type);
+                                newHands[turn].push({ type: t.type, owner: turn, promoted: false, skillCharges: tInfo.skill?.maxCharges || 0 });
+                                newBoard[p.r][p.c] = null;
+                                hit = true;
+                            }
+                        }
+                    });
+                    if (hit) {
+                        triggerEffect('explosion', targets);
+                        playSound('capture');
+                    }
+                }
+
                 // Handle Events
-                if (didSplit) setCutIn({ type: 'SPLIT', text: 'SPLIT', subText: 'DOUBLE TROUBLE' });
+                if (troubleTriggered) setCutIn({ type: 'TROUBLE', text: 'TROUBLE', subText: 'BETRAYAL' });
+                else if (didSplit) setCutIn({ type: 'SPLIT', text: 'SPLIT', subText: 'DOUBLE TROUBLE' });
                 else if (captureOccurred && info.skill?.type !== 'CORRUPTION') { setCutIn({ type: 'CAPTURE', text: 'CAPTURE', subText: '' }); playSound('capture'); }
-                else playSound('place');
+                else if (!boardExpanded) playSound('place');
 
                 // Decide Next State
                 if (canExplode) {
@@ -852,12 +1153,22 @@
             };
 
             const updateGameState = (newBoard, newHands, moveLoc, prevLoc) => {
+                const nextTurn = turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE;
+                
+                // Clear Frozen state for the player whose turn is starting
+                newBoard.forEach(row => row.forEach(cell => {
+                    if (cell && cell.frozen && cell.owner === nextTurn) {
+                        cell.frozen = false;
+                    }
+                }));
+
                 setBoard(newBoard);
                 setHands(newHands);
-                setTurn(turn === PLAYERS.SENTE ? PLAYERS.GOTE : PLAYERS.SENTE);
+                setTurn(nextTurn);
                 setSelected(null);
                 setValidDestinations([]);
                 setSkillMode(false);
+                setBrainwashState(null);
                 setPromotionPending(null);
                 setExplosionPending(null);
                 if (moveLoc) setLastMove({ from: prevLoc, to: moveLoc });
@@ -883,6 +1194,8 @@
                 const nb = b.map(row => row.map(cell => cell ? {...cell} : null));
                 const nh = { ...h, [PLAYERS.SENTE]: [...h[PLAYERS.SENTE]], [PLAYERS.GOTE]: [...h[PLAYERS.GOTE]] };
                 const targets = [];
+                const rows = nb.length;
+                const cols = nb[0].length;
                 for(let dr=-1; dr<=1; dr++) for(let dc=-1; dc<=1; dc++) targets.push({r:r+dr, c:c+dc});
                 triggerEffect('explosion', targets);
 
@@ -892,7 +1205,7 @@
                 nh[opp].push({ type: me.type, owner: opp, promoted: false, skillCharges: getPieceInfo(me.type).skill?.maxCharges || 0 });
 
                 targets.forEach(t => {
-                    if(t.r>=0 && t.r<9 && t.c>=0 && t.c<9 && nb[t.r][t.c] && getPieceInfo(nb[t.r][t.c].type).rarity !== RARITY.SSR) nb[t.r][t.c] = null;
+                    if(t.r>=0 && t.r<rows && t.c>=0 && t.c<cols && nb[t.r][t.c] && !nb[t.r][t.c].isObstacle && getPieceInfo(nb[t.r][t.c].type).rarity !== RARITY.SSR) nb[t.r][t.c] = null;
                 });
                 setCutIn({ type: 'EXPLOSION', text: 'EXPLOSION', subText: 'SACRIFICE' });
                 updateGameState(nb, nh, {r,c}, prev);
@@ -930,9 +1243,19 @@
         function ModernShogi() {
             const game = useShogiGame();
             const boardRef = useRef(null);
-            const cellRefs = useRef(Array(9).fill(null).map(() => Array(9).fill(null)));
+            const cellRefs = useRef([]); 
+            
+            // Dynamic Refs for dynamic board
+            const setCellRef = useCallback((r, c, el) => {
+                if (!cellRefs.current[r]) cellRefs.current[r] = [];
+                cellRefs.current[r][c] = el;
+            }, []);
 
             if (!game.board) return <div className="h-dvh w-full bg-white text-zinc-800 flex items-center justify-center">INITIALIZING...</div>;
+            
+            const rows = game.board.length;
+            const cols = game.board[0].length;
+            const isPortrait = rows > cols;
 
             return (
                 <div className="h-dvh w-full flex flex-col items-center justify-between py-4 font-sans select-none overflow-hidden touch-none relative">
@@ -964,14 +1287,33 @@
                         </div>
 
                         {/* Center: Board */}
-                        <div className="flex-1 flex items-center justify-center w-full px-2 z-10" ref={boardRef}>
-                             <div className={`relative p-2 sm:p-3 border rounded-sm shadow-xl transition-colors duration-300 ${game.skillMode ? 'bg-red-50 border-red-300' : 'bg-white border-zinc-200'}`}>
-                               <div className={`grid grid-cols-9 gap-px border transition-colors duration-300 ${game.skillMode ? 'bg-red-200 border-red-300' : 'bg-zinc-300 border-zinc-300'}`}>
+                        <div className="flex-1 w-full flex items-center justify-center px-2 py-2 overflow-hidden z-10" ref={boardRef}>
+                             <div 
+                                className={`
+                                    relative p-1 sm:p-2 border rounded-sm shadow-xl transition-colors duration-300 
+                                    ${game.skillMode ? 'bg-red-50 border-red-300' : 'bg-white border-zinc-200'}
+                                    /* レスポンシブサイズ調整: 縦画面は幅基準、横画面は高さ基準 */
+                                    w-full h-auto landscape:w-auto landscape:h-full
+                                    max-w-full max-h-full
+                                `}
+                                style={{ 
+                                    aspectRatio: `${cols}/${rows}`,
+                                }}
+                             >
+                               <div 
+                                    className={`grid gap-px border transition-colors duration-300 ${game.skillMode ? 'bg-red-200 border-red-300' : 'bg-zinc-300 border-zinc-300'}`}
+                                    style={{ 
+                                        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                                        gridTemplateRows: `repeat(${rows}, 1fr)`,
+                                        width: '100%',
+                                        height: '100%'
+                                    }}
+                               >
                                  {game.board.map((row, r) => row.map((cell, c) => (
                                      <BoardCell 
                                         key={`${r}-${c}`} r={r} c={c} cell={cell}
                                         game={game} 
-                                        cellRef={el => { if (cellRefs.current[r]) cellRefs.current[r][c] = el; }}
+                                        cellRef={el => setCellRef(r, c, el)}
                                         onClick={() => game.actions.handleBoardClick(r, c, cellRefs, boardRef)}
                                      />
                                  )))}
@@ -1014,12 +1356,25 @@
             const isSplitting = game.effects.split.some(ec => ec.r === r && ec.c === c);
             const isWind = game.effects.wind.some(ec => ec.r === r && ec.c === c);
 
+            // Hole logic
+            if (cell && cell.isObstacle) {
+                return (
+                    <div 
+                        ref={cellRef}
+                        className="w-full h-full bg-zinc-800 relative shadow-inner flex items-center justify-center overflow-hidden"
+                    >
+                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#000_30%,_transparent_70%)] opacity-80"></div>
+                         <div className="text-zinc-700 font-bold text-[8px] sm:text-[10px] select-none">VOID</div>
+                    </div>
+                );
+            }
+
             return (
                 <div 
                     ref={cellRef}
                     onClick={onClick}
                     className={`
-                        w-[min(10vw,36px)] h-[min(11vw,40px)] sm:w-[min(10vw,48px)] sm:h-[min(11vw,52px)] md:w-14 md:h-16
+                        w-full h-full
                         flex items-center justify-center relative transition-colors duration-200
                         ${isExploding ? 'explosion-fade' : ''} ${isSplitting ? 'split-fade' : ''} ${isWind ? 'wind-fade' : ''}
                         ${game.skillMode ? 'bg-red-50/50 hover:bg-red-200 cursor-crosshair' : 'bg-white'}
